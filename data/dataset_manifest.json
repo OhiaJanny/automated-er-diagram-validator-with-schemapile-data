@@ -1,59 +1,45 @@
 {
-  "benchmark_version": "1.0",
+  "benchmark_version": "2.0",
+  "source_dataset": "SchemaPile-Perm",
+  "source_paper": "SchemaPile: A Large Collection of Relational Database Schemas",
+  "source_paper_doi": "10.1145/3654975",
+  "source_dataset_doi": "10.5281/zenodo.12682521",
   "random_seed": 811,
   "diagram_type": "Information Engineering Crow's-Foot ER",
-  "total_cases": 280,
-  "valid_cases": 140,
-  "invalid_cases": 140,
-  "domains": 14,
-  "topology_families": 10,
+  "total_cases": 1400,
+  "valid_cases": 700,
+  "invalid_cases": 700,
   "error_types": 7,
-  "cases_per_error_type": 20,
-  "split_strategy": "Domain-grouped split. A domain and all schemas derived from it occur in exactly one split.",
+  "cases_per_error_type": 100,
+  "split_strategy": "Deterministic repository-grouped 70/15/15 split. All schemas from the same GitHub repository remain in one split.",
+  "source_schema_reuse": "No SchemaPile source schema is used more than once in the final benchmark.",
   "splits": {
     "train": {
-      "total": 198,
-      "valid": 100,
-      "invalid": 98,
-      "domains": [
-        "airline",
-        "ecommerce",
-        "education",
-        "healthcare",
-        "hotel",
-        "insurance",
-        "library",
-        "logistics",
-        "media",
-        "university"
-      ]
+      "total": 980,
+      "valid": 490,
+      "invalid": 490,
+      "source_repositories": 890
     },
     "dev": {
-      "total": 41,
-      "valid": 20,
-      "invalid": 21,
-      "domains": [
-        "inventory",
-        "manufacturing"
-      ]
+      "total": 210,
+      "valid": 105,
+      "invalid": 105,
+      "source_repositories": 192
     },
     "test": {
-      "total": 41,
-      "valid": 20,
-      "invalid": 21,
-      "domains": [
-        "banking",
-        "company"
-      ]
+      "total": 210,
+      "valid": 105,
+      "invalid": 105,
+      "source_repositories": 189
     }
   },
   "error_distribution": {
-    "CARDINALITY_UNIQUENESS_CONFLICT": 20,
-    "COMPOSITE_FK_INCOMPLETE": 20,
-    "FK_TARGET_NOT_KEY": 20,
-    "FK_WRONG_ENTITY": 20,
-    "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 20,
-    "MISSING_REQUIRED_RELATIONSHIP": 20,
-    "PARTICIPATION_OPTIONALITY_CONFLICT": 20
+    "CARDINALITY_UNIQUENESS_CONFLICT": 100,
+    "COMPOSITE_FK_INCOMPLETE": 100,
+    "FK_TARGET_NOT_KEY": 100,
+    "FK_WRONG_ENTITY": 100,
+    "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 100,
+    "MISSING_REQUIRED_RELATIONSHIP": 100,
+    "PARTICIPATION_OPTIONALITY_CONFLICT": 100
   }
 }

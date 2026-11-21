@@ -1,4 +1,6 @@
-# ER Defense Validator
+# Automated ER Diagram Validator
+
+Automated detection of non-trivial integrity and relationship errors in **Information Engineering / Crow's-Foot ER designs**, comparing deterministic rule-based validation, formal constraint solving, and LLM-based validation on a benchmark derived from real-world relational schemas.
 
 ## Project Overview
 
@@ -6,84 +8,137 @@ This repository contains the CSCE 811 Data Modeling final project:
 
 **Automated Detection of Non-Trivial Integrity and Relationship Errors in ER Diagrams: A Comparison of Rule-Based, Constraint-Solver, and LLM-Based Validation**
 
-The project focuses on automated validation of Information Engineering / Crow's-Foot ER designs.
+All three methods solve the same task:
 
-The goal is to determine whether an ER design satisfies predefined integrity and relationship constraints and, when invalid, identify the corresponding logical design error.
+> Given a normalized ER design and its relationship requirements, determine whether the design is logically valid and identify any errors using the project's shared taxonomy.
 
-Three methods are compared on the same benchmark:
+Methods:
 
-1. Deterministic Rule-Based Validator
-2. Constraint-Solver Validator using Z3
-3. LLM-Based Validator
+1. **Deterministic Rule-Based Validator**
+2. **Constraint-Solver Validator using Z3**
+3. **LLM-Based Validator**
 
-All three methods use the same input format, the same seven-error taxonomy, and the same prediction-output format so their results can be compared directly.
+All methods use the same benchmark, normalized input representation, seven-class taxonomy, prediction schema, held-out test set, and evaluation pipeline.
 
----
+## Real-World Data Source
 
-## Error Categories
+The benchmark is derived from **SchemaPile-Perm v0.2**, the permissively licensed subset of SchemaPile.
 
-The project evaluates the following seven logical ER-design errors:
+SchemaPile paper:
 
-- `FK_TARGET_NOT_KEY`
-- `FK_WRONG_ENTITY`
-- `COMPOSITE_FK_INCOMPLETE`
-- `CARDINALITY_UNIQUENESS_CONFLICT`
-- `PARTICIPATION_OPTIONALITY_CONFLICT`
-- `IDENTIFYING_RELATIONSHIP_KEY_ERROR`
-- `MISSING_REQUIRED_RELATIONSHIP`
+> Till Döhmen, Radu Geacu, Madelon Hulsebos, and Sebastian Schelter. 2024. **SchemaPile: A Large Collection of Relational Database Schemas.** *Proceedings of the ACM on Management of Data*, 2(3), Article 172. https://doi.org/10.1145/3654975
 
-Full definitions are available in:
+Dataset:
 
-```text
-docs/error_taxonomy.md
-```
+- Project: https://schemapile.github.io/
+- Zenodo: https://doi.org/10.5281/zenodo.12682521
+- SchemaPile-Perm schemas: **22,989**
+- SchemaPile-Perm tables: approximately **199K**
 
----
+This project uses SchemaPile-Perm as a real-world data source; it does **not** replicate the original SchemaPile experiments.
 
-## Benchmark Dataset
-
-The production benchmark contains:
-
-- 280 total ER cases
-- 140 valid cases
-- 140 invalid cases
-- 14 application domains
-- 10 ER topology families
-- 7 error categories
-- 20 invalid cases per error category
-
-Dataset split:
+## Benchmark Construction
 
 ```text
-Train: 198 cases
-Dev:    41 cases
-Test:   41 cases
+SchemaPile-Perm
+      ↓
+download
+      ↓
+conservative filtering
+      ↓
+normalize into ERCase
+      ↓
+eligibility audit for E01–E07
+      ↓
+controlled single-error mutation
+      ↓
+repository-grouped split
+      ↓
+final benchmark
 ```
 
-The dataset uses a domain-grouped split so the same application domain does not appear across multiple splits.
-
-The primary benchmark files are:
+Production import:
 
 ```text
-data/train.jsonl
-data/dev.jsonl
-data/test.jsonl
-data/dataset_manifest.json
+Raw schemas screened:       22,989
+Accepted reference cases:    7,366
+Distinct repositories:       5,897
+Rejected schemas:           15,623
 ```
 
-The benchmark can be regenerated using:
+A reference case means the schema is representable and internally consistent under this project's selected constraints. It is not a claim that every accepted real-world schema is universally optimal.
 
-```powershell
-python -m src.data.generate_base_cases
-python -m src.data.build_dataset
+## Final Benchmark
+
+```text
+1,400 total cases
+700 valid reference cases
+700 controlled invalid cases
+7 error classes
+100 invalid cases per error class
 ```
 
----
+| Split | Valid | Invalid | Total |
+|---|---:|---:|---:|
+| Train | 490 | 490 | 980 |
+| Dev | 105 | 105 | 210 |
+| Test | 105 | 105 | 210 |
+| **Total** | **700** | **700** | **1,400** |
+
+Each error class contributes 70 train, 15 dev, and 15 test invalid cases.
+
+## Repository-Grouped Split
+
+A deterministic **70/15/15 repository-grouped split** is used.
+
+All schemas from the same GitHub repository stay in one split, and the same SchemaPile source schema is never reused across final benchmark cases.
+
+## Error Taxonomy
+
+1. `FK_TARGET_NOT_KEY`
+2. `FK_WRONG_ENTITY`
+3. `COMPOSITE_FK_INCOMPLETE`
+4. `CARDINALITY_UNIQUENESS_CONFLICT`
+5. `PARTICIPATION_OPTIONALITY_CONFLICT`
+6. `IDENTIFYING_RELATIONSHIP_KEY_ERROR`
+7. `MISSING_REQUIRED_RELATIONSHIP`
+
+Definitions: `docs/error_taxonomy.md`
+
+## Eligibility Audit
+
+| Error Type | Eligible Cases |
+|---|---:|
+| `FK_TARGET_NOT_KEY` | 4,476 |
+| `FK_WRONG_ENTITY` | 5,681 |
+| `COMPOSITE_FK_INCOMPLETE` | 394 |
+| `CARDINALITY_UNIQUENESS_CONFLICT` | 966 |
+| `PARTICIPATION_OPTIONALITY_CONFLICT` | 7,282 |
+| `IDENTIFYING_RELATIONSHIP_KEY_ERROR` | 2,164 |
+| `MISSING_REQUIRED_RELATIONSHIP` | 7,366 |
+
+Generated report:
+
+```text
+data/audits/eligibility_report.json
+```
+
+## Why Controlled Mutations?
+
+SchemaPile provides real-world schemas but does not label them with this project's seven ER error classes.
+
+To obtain exact evaluation ground truth, the project:
+
+1. starts from an eligible reference-consistent real-world schema;
+2. applies one controlled structural mutation;
+3. records the intended violation for evaluation.
+
+Current benchmark v2.0 uses single-error invalid cases only.
 
 ## Repository Structure
 
 ```text
-er-defense-validator/
+automated-er-diagram-validator-schemapile/
 │
 ├── README.md
 ├── requirements.txt
@@ -103,18 +158,18 @@ er-defense-validator/
 │   └── prediction.schema.json
 │
 ├── data/
-│   ├── base/
-│   │   └── valid_cases/
-│   ├── generated/
-│   │   ├── valid/
-│   │   └── invalid/
+│   ├── raw/
+│   ├── processed/
+│   ├── audits/
+│   │   ├── import_report.json
+│   │   └── eligibility_report.json
+│   ├── toy/
+│   │   ├── valid_example.json
+│   │   └── invalid_example.json
 │   ├── train.jsonl
 │   ├── dev.jsonl
 │   ├── test.jsonl
-│   ├── dataset_manifest.json
-│   └── toy/
-│       ├── valid_example.json
-│       └── invalid_example.json
+│   └── dataset_manifest.json
 │
 ├── diagrams/
 │   ├── plantuml/
@@ -126,13 +181,13 @@ er-defense-validator/
 │   │   ├── io.py
 │   │   ├── validator_interface.py
 │   │   └── constants.py
-│   │
 │   ├── data/
-│   │   ├── generate_base_cases.py
+│   │   ├── download_schemapile.py
+│   │   ├── import_schemapile.py
+│   │   ├── eligibility_report.py
 │   │   ├── inject_errors.py
 │   │   ├── build_dataset.py
 │   │   └── render_plantuml.py
-│   │
 │   ├── methods/
 │   │   ├── rule_based/
 │   │   │   └── validator.py
@@ -141,146 +196,130 @@ er-defense-validator/
 │   │   └── llm_based/
 │   │       ├── validator.py
 │   │       └── prompt.txt
-│   │
 │   └── evaluation/
 │       ├── metrics.py
 │       ├── evaluate.py
 │       └── compare_methods.py
 │
 ├── tests/
-│
 ├── outputs/
-│   ├── rule_based/
-│   ├── constraint_solver/
-│   └── llm_based/
-│
 ├── results/
-│   └── figures/
-│
 └── report/
     └── notes/
 ```
 
----
-
 ## Installation
-
-Clone the repository and move into the project directory.
-
-Install all required Python packages with:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-The main dependencies include:
+Main dependencies include `jsonschema`, `pytest`, `networkx`, `z3-solver`, `openai`, `numpy`, `pandas`, `scikit-learn`, `matplotlib`, `PyYAML`, and `python-dotenv`.
 
-- `jsonschema`
-- `pytest`
-- `networkx`
-- `z3-solver`
-- `openai`
-- `numpy`
-- `pandas`
-- `scikit-learn`
-- `matplotlib`
-- `PyYAML`
-- `python-dotenv`
+## Reproduce the Data Pipeline
 
----
+### 1. Download SchemaPile-Perm
 
-## Running the Tests
+```powershell
+python -m src.data.download_schemapile
+```
 
-Run the complete test suite from the repository root:
+The script downloads the published `schemapile-perm.json.gz` release and verifies its MD5 checksum.
+
+### 2. Import and Normalize
+
+```powershell
+python -m src.data.import_schemapile
+```
+
+Outputs include:
+
+```text
+data/processed/reference_cases.jsonl
+data/audits/import_report.json
+```
+
+### 3. Eligibility Audit
+
+```powershell
+python -m src.data.eligibility_report
+```
+
+Output:
+
+```text
+data/audits/eligibility_report.json
+```
+
+### 4. Build Benchmark
+
+```powershell
+python -m src.data.build_dataset --per-error auto
+```
+
+Production result:
+
+```text
+Selected 100 cases per error type.
+Train: 980
+Dev:   210
+Test:  210
+Total: 1,400
+```
+
+## Tests
+
+Run:
 
 ```powershell
 pytest -v
 ```
 
-All existing shared tests should pass before method-specific changes are merged.
+Current shared benchmark/core status:
 
-Method-specific tests may also be run individually.
-
-Rule-based:
-
-```powershell
-pytest tests/test_rule_based.py -v
+```text
+47 passed
 ```
 
-Constraint solver:
-
-```powershell
-pytest tests/test_solver.py -v
-```
-
-LLM-based:
-
-```powershell
-pytest tests/test_llm.py -v
-```
-
----
+The suite covers schema validation, I/O, shared validator behavior, SchemaPile import/normalization, controlled mutation, benchmark balance, repository isolation, source-schema non-reuse, and final dataset schema validity.
 
 ## Shared Architecture
 
-All validation methods use the shared infrastructure under:
-
-```text
-src/core/
-```
-
-Important files include:
-
 ### `src/core/models.py`
 
-Defines common project data structures such as:
-
-- `ERCase`
-- `Entity`
-- `Attribute`
-- `Relationship`
-- `Prediction`
-- `PredictionError`
+Defines shared ER and prediction data models.
 
 ### `src/core/io.py`
 
-Handles:
-
-- JSON and JSONL loading
-- schema validation
-- prediction loading/writing
-- conversion between dictionaries and dataclasses
-- removal of ground truth before method execution
+Handles JSON/JSONL I/O, schema validation, dataclass conversion, prediction I/O, and method-input preparation.
 
 ### `src/core/validator_interface.py`
 
-Defines the common `BaseValidator` interface.
-
-Every validation method must inherit from `BaseValidator`.
+Defines the shared `BaseValidator`.
 
 ### `src/core/constants.py`
 
-Defines the official:
+Defines common method names, error labels, cardinalities, and constants.
 
-- method names
-- seven error labels
-- cardinality values
-- shared constants
+## Leakage Prevention
 
-Shared files should not be changed independently without coordinating with the team.
+Validators must not receive or use:
 
----
+- `ground_truth`;
+- mutation labels;
+- mutation seeds;
+- `error_count`;
+- answer-bearing case IDs;
+- source provenance as an answer shortcut.
 
-## Method Development
+Final method-facing case IDs should be opaque with respect to validity and error class.
 
-Each team member should work primarily inside the directory assigned to their method.
-
-### Rule-Based Validator
-
-Implementation:
+## Rule-Based Validator
 
 ```text
 src/methods/rule_based/validator.py
+outputs/rule_based/predictions.jsonl
+tests/test_rule_based.py
 ```
 
 Method name:
@@ -289,26 +328,12 @@ Method name:
 rule_based
 ```
 
-Output:
-
-```text
-outputs/rule_based/predictions.jsonl
-```
-
-Tests:
-
-```text
-tests/test_rule_based.py
-```
-
----
-
-### Constraint-Solver Validator
-
-Implementation:
+## Constraint-Solver Validator
 
 ```text
 src/methods/constraint_solver/validator.py
+outputs/constraint_solver/predictions.jsonl
+tests/test_solver.py
 ```
 
 Method name:
@@ -317,34 +342,13 @@ Method name:
 constraint_solver
 ```
 
-Use the Z3 SMT solver to express and evaluate the same ER integrity constraints used by the other methods.
-
-Output:
-
-```text
-outputs/constraint_solver/predictions.jsonl
-```
-
-Tests:
-
-```text
-tests/test_solver.py
-```
-
----
-
-### LLM-Based Validator
-
-Implementation:
+## LLM-Based Validator
 
 ```text
 src/methods/llm_based/validator.py
-```
-
-Prompt:
-
-```text
 src/methods/llm_based/prompt.txt
+outputs/llm_based/predictions.jsonl
+tests/test_llm.py
 ```
 
 Method name:
@@ -353,220 +357,107 @@ Method name:
 llm_based
 ```
 
-Output:
-
-```text
-outputs/llm_based/predictions.jsonl
-```
-
-Tests:
-
-```text
-tests/test_llm.py
-```
-
-The LLM must only return the seven supported error labels.
-
-Ground-truth labels must never be included in the model prompt.
-
----
+The LLM must use the same leakage-free candidate information and the same seven labels as the other methods.
 
 ## Common Prediction Format
 
-All three methods must return the same prediction structure.
-
-Example valid prediction:
-
 ```json
 {
-  "case_id": "VALID_0001",
-  "method": "rule_based",
-  "predicted_valid": true,
-  "errors": [],
-  "runtime_ms": 1.8
-}
-```
-
-Example invalid prediction:
-
-```json
-{
-  "case_id": "INVALID_E01_TEST_001",
+  "case_id": "CASE_A19F03D28B11",
   "method": "rule_based",
   "predicted_valid": false,
   "errors": [
     {
       "error_type": "FK_TARGET_NOT_KEY",
-      "entity": "ORDER",
-      "attribute": "customer_id",
-      "relationship": "customer_order",
-      "message": "Foreign key references a non-key attribute."
+      "entity": "orders",
+      "attribute": "user_id",
+      "relationship": "fk_001_orders_to_users",
+      "message": "Foreign key references an attribute that is not a key."
     }
   ],
   "runtime_ms": 2.4
 }
 ```
 
-The full prediction specification is defined in:
+Full schema:
 
 ```text
 schemas/prediction.schema.json
 ```
 
----
-
-## Ground-Truth Protection
-
-Method implementations must never inspect:
-
-```python
-case["ground_truth"]
-```
-
-Ground truth is used only for:
-
-- dataset generation
-- benchmark verification
-- final evaluation
-
-The shared I/O layer removes ground truth before cases are supplied to validators.
-
----
-
 ## Evaluation
 
-Shared evaluation code belongs in:
+Shared evaluation code:
 
 ```text
 src/evaluation/
 ```
 
-The project compares methods using metrics including:
+Planned metrics include:
 
-- Precision
-- Recall
-- F1 score
-- Macro-F1
-- Valid/invalid accuracy
-- Exact error-set accuracy
-- Localization accuracy
-- False-positive rate
-- Runtime
+- validity accuracy;
+- precision;
+- recall;
+- F1;
+- macro-F1;
+- per-error metrics;
+- exact error-set accuracy;
+- localization accuracy;
+- false-positive rate;
+- runtime.
 
-Raw predictions belong in:
-
-```text
-outputs/
-```
-
-Final comparison tables and figures belong in:
-
-```text
-results/
-```
-
----
+Raw predictions go under `outputs/`. Aggregated results and figures go under `results/`.
 
 ## API Keys
 
-Do not commit API keys to GitHub.
+Do not commit API keys.
 
-For the LLM method, copy:
-
-```text
-.env.example
-```
-
-to:
-
-```text
-.env
-```
-
-and add the key locally:
+Create `.env` locally from `.env.example` and set:
 
 ```text
 OPENAI_API_KEY=your_key_here
 ```
 
-The `.env` file is excluded from Git through `.gitignore`.
+## Collaboration
 
----
-
-## Team Implementation Guide
-
-A more detailed architecture and implementation guide is available at:
-
-```text
-report/notes/team_implementation_guide.md
-```
-
-Team members should read that file before implementing their assigned method.
-
-It explains:
-
-- project architecture
-- shared files
-- method ownership
-- required interfaces
-- output locations
-- testing requirements
-- AI-assisted coding instructions
-- collaboration rules
-
----
-
-## Collaboration Guidelines
-
-Before starting work:
+Before changes:
 
 ```powershell
 git pull
 ```
 
-Use a separate branch for your assigned method where appropriate.
-
-Example:
-
-```powershell
-git checkout -b rule-based-validator
-```
-
-Before requesting a merge:
+Before merging:
 
 ```powershell
 pytest -v
 ```
 
-should pass.
+Do not modify shared benchmark construction, schemas, taxonomy, or core interfaces without team agreement.
 
-Do not commit:
+## Documentation
 
 ```text
-.env
-__pycache__/
-*.pyc
-.pytest_cache/
-IDE temporary files
-API keys
+docs/project_scope.md
+docs/data_format.md
+docs/error_taxonomy.md
+docs/method_interface.md
 ```
-
-Do not independently modify the benchmark, schemas, shared taxonomy, or core interfaces without coordinating with the team.
-
----
 
 ## Project Principle
 
-All three validation methods must solve the same problem:
+All three methods must solve the **same validation problem on the same held-out real-world-derived benchmark** using the same taxonomy, output contract, leakage controls, and evaluation definitions.
 
-> Determine whether an ER design satisfies the project's predefined integrity and relationship constraints and identify any corresponding logical design errors.
+## Citation
 
-The methods must use the same:
+```text
+Döhmen, T., Geacu, R., Hulsebos, M., & Schelter, S. (2024).
+SchemaPile: A Large Collection of Relational Database Schemas.
+Proceedings of the ACM on Management of Data, 2(3), Article 172.
+https://doi.org/10.1145/3654975
+```
 
-- benchmark
-- input representation
-- error taxonomy
-- output schema
-- evaluation procedure
+SchemaPile-Perm:
 
-This ensures that the final performance comparison is fair and reproducible.
+```text
+https://doi.org/10.5281/zenodo.12682521
+```

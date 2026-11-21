@@ -1,30 +1,21 @@
 from __future__ import annotations
 
+import argparse
 import copy
-import random
+import hashlib
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from src.core.constants import (
-    ERROR_CARDINALITY_UNIQUENESS_CONFLICT,
-    ERROR_COMPOSITE_FK_INCOMPLETE,
-    ERROR_FK_TARGET_NOT_KEY,
-    ERROR_FK_WRONG_ENTITY,
-    ERROR_IDENTIFYING_RELATIONSHIP_KEY_ERROR,
-    ERROR_MISSING_REQUIRED_RELATIONSHIP,
-    ERROR_PARTICIPATION_OPTIONALITY_CONFLICT,
-)
 from src.core.io import (
+    get_er_case_validator,
+    load_jsonl,
     save_json,
     save_jsonl,
-    validate_case_dict,
-)
-from src.data.generate_base_cases import (
-    generate_base_cases,
-    save_base_cases,
 )
 from src.data.inject_errors import (
+    ERROR_ORDER,
+    ERROR_SELECTION_ORDER,
     eligible_error_types,
     inject_error,
 )
@@ -37,16 +28,10 @@ DATA_DIR = (
     / "data"
 )
 
-GENERATED_VALID_DIR = (
+REFERENCE_CASES_PATH = (
     DATA_DIR
-    / "generated"
-    / "valid"
-)
-
-GENERATED_INVALID_DIR = (
-    DATA_DIR
-    / "generated"
-    / "invalid"
+    / "processed"
+    / "reference_cases.jsonl"
 )
 
 TRAIN_PATH = (
@@ -69,245 +54,149 @@ MANIFEST_PATH = (
     / "dataset_manifest.json"
 )
 
+TOY_DIR = (
+    DATA_DIR
+    / "toy"
+)
 
-BENCHMARK_VERSION = "1.0"
-RANDOM_SEED = 811
+TOY_VALID_PATH = (
+    TOY_DIR
+    / "valid_example.json"
+)
 
-
-ERROR_TYPES = (
-    ERROR_FK_TARGET_NOT_KEY,
-    ERROR_FK_WRONG_ENTITY,
-    ERROR_COMPOSITE_FK_INCOMPLETE,
-    ERROR_CARDINALITY_UNIQUENESS_CONFLICT,
-    ERROR_PARTICIPATION_OPTIONALITY_CONFLICT,
-    ERROR_IDENTIFYING_RELATIONSHIP_KEY_ERROR,
-    ERROR_MISSING_REQUIRED_RELATIONSHIP,
+TOY_INVALID_PATH = (
+    TOY_DIR
+    / "invalid_example.json"
 )
 
 
+BENCHMARK_VERSION = "2.0"
+RANDOM_SEED = 811
+
+AUTO_MAX_PER_ERROR = 100
+AUTO_MIN_PER_ERROR = 20
+
+
 ERROR_CODES = {
-    ERROR_FK_TARGET_NOT_KEY: "E01",
-    ERROR_FK_WRONG_ENTITY: "E02",
-    ERROR_COMPOSITE_FK_INCOMPLETE: "E03",
-    ERROR_CARDINALITY_UNIQUENESS_CONFLICT: "E04",
-    ERROR_PARTICIPATION_OPTIONALITY_CONFLICT: "E05",
-    ERROR_IDENTIFYING_RELATIONSHIP_KEY_ERROR: "E06",
-    ERROR_MISSING_REQUIRED_RELATIONSHIP: "E07",
+    ERROR_ORDER[0]: "E01",
+    ERROR_ORDER[1]: "E02",
+    ERROR_ORDER[2]: "E03",
+    ERROR_ORDER[3]: "E04",
+    ERROR_ORDER[4]: "E05",
+    ERROR_ORDER[5]: "E06",
+    ERROR_ORDER[6]: "E07",
 }
 
 
-INVALID_QUOTAS = {
-    "train": 14,
-    "dev": 3,
-    "test": 3,
-}
-
-
-def clear_generated_json() -> None:
-    """
-    Remove stale generated benchmark JSON files
-    before rebuilding the production dataset.
-    """
-    GENERATED_VALID_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    GENERATED_INVALID_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    for path in (
-        GENERATED_VALID_DIR.glob(
-            "*.json"
+def repository_split(
+    repository: str,
+    seed: int = RANDOM_SEED,
+) -> str:
+    digest = hashlib.sha256(
+        (
+            f"{seed}:"
+            f"{repository}"
+        ).encode(
+            "utf-8"
         )
-    ):
-        path.unlink()
+    ).hexdigest()
 
-    for path in (
-        GENERATED_INVALID_DIR.glob(
-            "*.json"
+    bucket = (
+        int(
+            digest[:8],
+            16,
         )
-    ):
-        path.unlink()
-
-
-def split_domains(
-    base_cases: list[dict[str, Any]],
-) -> dict[str, set[str]]:
-    """
-    Split by complete domain rather than by case.
-
-    No domain appears in more than one split.
-
-    14 domains:
-    10 train
-    2 dev
-    2 test
-    """
-    domains = sorted(
-        {
-            case["domain"]
-            for case in base_cases
-        }
+        / 0xFFFFFFFF
     )
 
-    if len(domains) != 14:
-        raise ValueError(
-            "Production benchmark expects "
-            "exactly 14 domains."
-        )
+    if bucket < 0.70:
+        return "train"
 
-    rng = random.Random(
-        RANDOM_SEED
+    if bucket < 0.85:
+        return "dev"
+
+    return "test"
+
+
+def stable_rank(
+    value: str,
+    *,
+    salt: str,
+) -> str:
+    return hashlib.sha256(
+        (
+            f"{RANDOM_SEED}:"
+            f"{salt}:"
+            f"{value}"
+        ).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def allocate_error_quota(
+    total_per_error: int,
+) -> dict[str, int]:
+    train = int(
+        total_per_error
+        * 0.70
     )
 
-    rng.shuffle(domains)
+    dev = int(
+        total_per_error
+        * 0.15
+    )
+
+    test = (
+        total_per_error
+        - train
+        - dev
+    )
 
     return {
-        "train": set(
-            domains[:10]
-        ),
-        "dev": set(
-            domains[10:12]
-        ),
-        "test": set(
-            domains[12:14]
-        ),
+        "train": train,
+        "dev": dev,
+        "test": test,
     }
 
 
-def assign_base_cases_to_splits(
-    base_cases: list[dict[str, Any]],
-    domain_splits: dict[str, set[str]],
-) -> dict[
-    str,
-    list[dict[str, Any]],
+def load_reference_cases() -> list[
+    dict[str, Any]
 ]:
-    split_cases = {
-        "train": [],
-        "dev": [],
-        "test": [],
-    }
-
-    for case in base_cases:
-
-        matched_split = None
-
-        for (
-            split_name,
-            domains,
-        ) in domain_splits.items():
-
-            if case["domain"] in domains:
-                matched_split = (
-                    split_name
-                )
-                break
-
-        if matched_split is None:
-            raise ValueError(
-                f"No split assigned to "
-                f"{case['domain']}."
-            )
-
-        split_cases[
-            matched_split
-        ].append(case)
-
-    expected_sizes = {
-        "train": 100,
-        "dev": 20,
-        "test": 20,
-    }
-
-    for (
-        split_name,
-        expected_size,
-    ) in expected_sizes.items():
-
-        actual_size = len(
-            split_cases[
-                split_name
-            ]
+    if not (
+        REFERENCE_CASES_PATH.exists()
+    ):
+        raise FileNotFoundError(
+            "Reference cases are missing. "
+            "Run:\n"
+            "python -m "
+            "src.data.import_schemapile"
         )
 
-        if (
-            actual_size
-            != expected_size
-        ):
+    cases = load_jsonl(
+        REFERENCE_CASES_PATH
+    )
+
+    if not cases:
+        raise ValueError(
+            "Reference case file "
+            "is empty."
+        )
+
+    for case in cases:
+        if not case[
+            "ground_truth"
+        ]["valid"]:
             raise ValueError(
-                f"{split_name} expected "
-                f"{expected_size} base cases "
-                f"but found {actual_size}."
+                "Reference pool contains "
+                "an invalid case."
             )
 
-    return split_cases
+    return cases
 
 
-def create_valid_record(
-    base_case: dict[str, Any],
-    *,
-    split_name: str,
-) -> dict[str, Any]:
-    """
-    Convert a generated base design into a final
-    valid benchmark record.
-    """
-    case = copy.deepcopy(
-        base_case
-    )
-
-    base_case_id = (
-        base_case["case_id"]
-    )
-
-    numeric_id = (
-        base_case_id.split(
-            "_"
-        )[-1]
-    )
-
-    case["case_id"] = (
-        f"VALID_{numeric_id}"
-    )
-
-    case["metadata"] = copy.deepcopy(
-        case["metadata"]
-    )
-
-    case["metadata"][
-        "parent_case_id"
-    ] = base_case_id
-
-    case["metadata"][
-        "benchmark_version"
-    ] = BENCHMARK_VERSION
-
-    case["metadata"][
-        "split"
-    ] = split_name
-
-    case["metadata"][
-        "error_count"
-    ] = 0
-
-    case["ground_truth"] = {
-        "valid": True,
-        "errors": [],
-    }
-
-    validate_case_dict(case)
-
-    return case
-
-
-def create_valid_records(
-    split_base_cases: dict[
-        str,
-        list[dict[str, Any]],
-    ],
+def split_reference_cases(
+    cases: list[dict[str, Any]],
 ) -> dict[
     str,
     list[dict[str, Any]],
@@ -318,87 +207,297 @@ def create_valid_records(
         "test": [],
     }
 
-    for (
-        split_name,
-        base_cases,
-    ) in split_base_cases.items():
+    for case in cases:
+        repository = (
+            case["metadata"][
+                "source_repository"
+            ]
+        )
 
-        for base_case in base_cases:
-
-            result[
-                split_name
-            ].append(
-                create_valid_record(
-                    base_case,
-                    split_name=(
-                        split_name
-                    ),
-                )
+        split_name = (
+            repository_split(
+                repository
             )
+        )
+
+        result[
+            split_name
+        ].append(
+            case
+        )
 
     return result
 
 
-def eligible_cases_for_error(
-    base_cases: list[dict[str, Any]],
-    error_type: str,
-) -> list[dict[str, Any]]:
-    return [
-        case
-        for case in base_cases
-        if (
-            error_type
-            in eligible_error_types(
+def build_eligibility_cache(
+    cases: list[dict[str, Any]],
+) -> dict[
+    str,
+    set[str],
+]:
+    return {
+        case["case_id"]: set(
+            eligible_error_types(
                 case
             )
         )
-    ]
+        for case in cases
+    }
 
 
-def select_invalid_base_cases(
-    base_cases: list[dict[str, Any]],
-    *,
-    error_type: str,
-    quota: int,
-    seed: int,
-) -> list[dict[str, Any]]:
-    """
-    Select distinct eligible base schemas for one
-    error type within one split.
-    """
-    eligible = (
-        eligible_cases_for_error(
-            base_cases,
-            error_type,
-        )
-    )
-
-    if len(eligible) < quota:
-        raise ValueError(
-            f"Insufficient eligible cases for "
-            f"{error_type}. "
-            f"Required {quota}, found "
-            f"{len(eligible)}."
-        )
-
-    eligible = sorted(
-        eligible,
-        key=lambda case: (
-            case["case_id"]
-        ),
-    )
-
-    rng = random.Random(seed)
-
-    rng.shuffle(eligible)
-
-    return eligible[:quota]
-
-
-def create_invalid_records(
-    split_base_cases: dict[
+def try_selection_plan(
+    split_cases: dict[
         str,
         list[dict[str, Any]],
+    ],
+    eligibility: dict[
+        str,
+        set[str],
+    ],
+    total_per_error: int,
+) -> dict[
+    str,
+    dict[
+        str,
+        list[dict[str, Any]],
+    ],
+] | None:
+    quotas = (
+        allocate_error_quota(
+            total_per_error
+        )
+    )
+
+    used = {
+        "train": set(),
+        "dev": set(),
+        "test": set(),
+    }
+
+    plan = {
+        "train": {},
+        "dev": {},
+        "test": {},
+    }
+
+    for error_type in (
+        ERROR_SELECTION_ORDER
+    ):
+
+        for split_name in (
+            "train",
+            "dev",
+            "test",
+        ):
+            required = quotas[
+                split_name
+            ]
+
+            candidates = [
+                case
+                for case
+                in split_cases[
+                    split_name
+                ]
+                if (
+                    case["case_id"]
+                    not in used[
+                        split_name
+                    ]
+                    and error_type
+                    in eligibility[
+                        case[
+                            "case_id"
+                        ]
+                    ]
+                )
+            ]
+
+            candidates.sort(
+                key=lambda case: (
+                    stable_rank(
+                        case[
+                            "case_id"
+                        ],
+                        salt=(
+                            f"{split_name}:"
+                            f"{error_type}"
+                        ),
+                    )
+                )
+            )
+
+            if (
+                len(candidates)
+                < required
+            ):
+                return None
+
+            selected = (
+                candidates[
+                    :required
+                ]
+            )
+
+            plan[
+                split_name
+            ][
+                error_type
+            ] = selected
+
+            used[
+                split_name
+            ].update(
+                case[
+                    "case_id"
+                ]
+                for case
+                in selected
+            )
+
+    for split_name in (
+        "train",
+        "dev",
+        "test",
+    ):
+        invalid_count = sum(
+            len(
+                plan[
+                    split_name
+                ][
+                    error_type
+                ]
+            )
+            for error_type
+            in ERROR_ORDER
+        )
+
+        remaining_count = (
+            len(
+                split_cases[
+                    split_name
+                ]
+            )
+            - len(
+                used[
+                    split_name
+                ]
+            )
+        )
+
+        if (
+            remaining_count
+            < invalid_count
+        ):
+            return None
+
+    return plan
+
+
+def choose_total_per_error(
+    split_cases: dict[
+        str,
+        list[dict[str, Any]],
+    ],
+    eligibility: dict[
+        str,
+        set[str],
+    ],
+    requested: int | None,
+) -> tuple[
+    int,
+    dict[
+        str,
+        dict[
+            str,
+            list[dict[str, Any]],
+        ],
+    ],
+]:
+    if requested is not None:
+
+        if (
+            requested
+            < AUTO_MIN_PER_ERROR
+        ):
+            raise ValueError(
+                f"--per-error must be "
+                f"at least "
+                f"{AUTO_MIN_PER_ERROR}."
+            )
+
+        plan = try_selection_plan(
+            split_cases,
+            eligibility,
+            requested,
+        )
+
+        if plan is None:
+            raise ValueError(
+                f"A balanced benchmark "
+                f"with {requested} cases "
+                "per error type is not "
+                "feasible with the "
+                "current filtered pool. "
+                "Use --per-error auto "
+                "or a smaller number."
+            )
+
+        return requested, plan
+
+    for total_per_error in range(
+        AUTO_MAX_PER_ERROR,
+        AUTO_MIN_PER_ERROR - 1,
+        -1,
+    ):
+        plan = try_selection_plan(
+            split_cases,
+            eligibility,
+            total_per_error,
+        )
+
+        if plan is not None:
+            return (
+                total_per_error,
+                plan,
+            )
+
+    raise ValueError(
+        "Could not construct a "
+        "balanced benchmark with "
+        f"at least "
+        f"{AUTO_MIN_PER_ERROR} "
+        "examples per error type."
+    )
+
+
+def mutation_seed(
+    case_id: str,
+    error_type: str,
+) -> int:
+    digest = hashlib.sha256(
+        (
+            f"{RANDOM_SEED}:"
+            f"{case_id}:"
+            f"{error_type}"
+        ).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+    return int(
+        digest[:8],
+        16,
+    )
+
+
+def create_invalid_cases(
+    plan: dict[
+        str,
+        dict[
+            str,
+            list[dict[str, Any]],
+        ],
     ],
 ) -> dict[
     str,
@@ -410,45 +509,23 @@ def create_invalid_records(
         "test": [],
     }
 
-    split_seed_offsets = {
-        "train": 100000,
-        "dev": 200000,
-        "test": 300000,
-    }
+    for split_name in (
+        "train",
+        "dev",
+        "test",
+    ):
 
-    for (
-        split_name,
-        base_cases,
-    ) in split_base_cases.items():
+        counters = Counter()
 
-        quota = INVALID_QUOTAS[
-            split_name
-        ]
-
-        for error_index, error_type in enumerate(
-            ERROR_TYPES,
-            start=1,
+        for error_type in (
+            ERROR_ORDER
         ):
-
-            selection_seed = (
-                RANDOM_SEED
-                + split_seed_offsets[
+            selected = (
+                plan[
                     split_name
+                ][
+                    error_type
                 ]
-                + error_index
-            )
-
-            selected_bases = (
-                select_invalid_base_cases(
-                    base_cases,
-                    error_type=(
-                        error_type
-                    ),
-                    quota=quota,
-                    seed=(
-                        selection_seed
-                    ),
-                )
             )
 
             error_code = (
@@ -457,25 +534,24 @@ def create_invalid_records(
                 ]
             )
 
-            for (
-                item_index,
-                base_case,
-            ) in enumerate(
-                selected_bases,
-                start=1,
+            for base_case in (
+                selected
             ):
+                counters[
+                    error_type
+                ] += 1
 
-                mutation_seed = (
-                    selection_seed
-                    + item_index
-                    * 100
+                item_number = (
+                    counters[
+                        error_type
+                    ]
                 )
 
                 case_id = (
                     f"INVALID_"
                     f"{error_code}_"
                     f"{split_name.upper()}_"
-                    f"{item_index:03d}"
+                    f"{item_number:04d}"
                 )
 
                 invalid_case = (
@@ -486,17 +562,14 @@ def create_invalid_records(
                             case_id
                         ),
                         seed=(
-                            mutation_seed
+                            mutation_seed(
+                                base_case[
+                                    "case_id"
+                                ],
+                                error_type,
+                            )
                         ),
                     )
-                )
-
-                invalid_case[
-                    "metadata"
-                ][
-                    "benchmark_version"
-                ] = (
-                    BENCHMARK_VERSION
                 )
 
                 invalid_case[
@@ -505,8 +578,12 @@ def create_invalid_records(
                     "split"
                 ] = split_name
 
-                validate_case_dict(
-                    invalid_case
+                invalid_case[
+                    "metadata"
+                ][
+                    "benchmark_version"
+                ] = (
+                    BENCHMARK_VERSION
                 )
 
                 result[
@@ -518,335 +595,376 @@ def create_invalid_records(
     return result
 
 
-def verify_error_distribution(
-    invalid_records: dict[
+def selected_invalid_base_ids(
+    plan: dict[
+        str,
+        dict[
+            str,
+            list[dict[str, Any]],
+        ],
+    ],
+    split_name: str,
+) -> set[str]:
+    result: set[str] = set()
+
+    for error_type in (
+        ERROR_ORDER
+    ):
+        result.update(
+            case["case_id"]
+            for case in (
+                plan[
+                    split_name
+                ][
+                    error_type
+                ]
+            )
+        )
+
+    return result
+
+
+def create_valid_cases(
+    split_cases: dict[
         str,
         list[dict[str, Any]],
     ],
-) -> None:
-    expected_per_split = {
-        "train": 14,
-        "dev": 3,
-        "test": 3,
+    plan: dict[
+        str,
+        dict[
+            str,
+            list[dict[str, Any]],
+        ],
+    ],
+    invalid_cases: dict[
+        str,
+        list[dict[str, Any]],
+    ],
+) -> dict[
+    str,
+    list[dict[str, Any]],
+]:
+    result = {
+        "train": [],
+        "dev": [],
+        "test": [],
     }
 
-    global_counts = Counter()
-
-    for (
-        split_name,
-        cases,
-    ) in invalid_records.items():
-
-        split_counts = Counter(
-            case["ground_truth"][
-                "errors"
-            ][0]["error_type"]
-            for case in cases
+    for split_name in (
+        "train",
+        "dev",
+        "test",
+    ):
+        excluded = (
+            selected_invalid_base_ids(
+                plan,
+                split_name,
+            )
         )
 
-        expected = (
-            expected_per_split[
+        candidates = [
+            case
+            for case
+            in split_cases[
+                split_name
+            ]
+            if (
+                case["case_id"]
+                not in excluded
+            )
+        ]
+
+        candidates.sort(
+            key=lambda case: (
+                stable_rank(
+                    case["case_id"],
+                    salt=(
+                        f"valid:"
+                        f"{split_name}"
+                    ),
+                )
+            )
+        )
+
+        required = len(
+            invalid_cases[
                 split_name
             ]
         )
 
-        for error_type in ERROR_TYPES:
-
-            actual = split_counts[
-                error_type
-            ]
-
-            if actual != expected:
-                raise ValueError(
-                    f"{split_name}: "
-                    f"{error_type} expected "
-                    f"{expected}, found "
-                    f"{actual}."
-                )
-
-        global_counts.update(
-            split_counts
-        )
-
-    for error_type in ERROR_TYPES:
-
         if (
-            global_counts[
-                error_type
-            ]
-            != 20
+            len(candidates)
+            < required
         ):
             raise ValueError(
-                f"{error_type} expected "
-                "20 cases globally, found "
-                f"{global_counts[error_type]}."
+                f"Not enough unused "
+                f"reference cases for "
+                f"{split_name} valid "
+                "examples."
             )
 
+        for base_case in (
+            candidates[:required]
+        ):
+            case = copy.deepcopy(
+                base_case
+            )
 
-def verify_domain_isolation(
-    domain_splits: dict[
-        str,
-        set[str],
-    ],
-) -> None:
-    train = domain_splits[
-        "train"
-    ]
+            original_case_id = (
+                case["case_id"]
+            )
 
-    dev = domain_splits[
-        "dev"
-    ]
+            case["case_id"] = (
+                f"VALID_"
+                f"{original_case_id}"
+            )
 
-    test = domain_splits[
-        "test"
-    ]
+            case["metadata"] = (
+                copy.deepcopy(
+                    case[
+                        "metadata"
+                    ]
+                )
+            )
 
-    if train & dev:
-        raise ValueError(
-            "Domain leakage between "
-            "train and dev."
-        )
+            case["metadata"][
+                "parent_case_id"
+            ] = original_case_id
 
-    if train & test:
-        raise ValueError(
-            "Domain leakage between "
-            "train and test."
-        )
+            case["metadata"][
+                "split"
+            ] = split_name
 
-    if dev & test:
-        raise ValueError(
-            "Domain leakage between "
-            "dev and test."
-        )
+            case["metadata"][
+                "benchmark_version"
+            ] = (
+                BENCHMARK_VERSION
+            )
+
+            case["metadata"][
+                "error_count"
+            ] = 0
+
+            case[
+                "ground_truth"
+            ] = {
+                "valid": True,
+                "errors": [],
+            }
+
+            result[
+                split_name
+            ].append(
+                case
+            )
+
+    return result
 
 
-def verify_parent_isolation(
+def deterministic_shuffle(
+    cases: list[dict[str, Any]],
+    split_name: str,
+) -> list[dict[str, Any]]:
+    return sorted(
+        cases,
+        key=lambda case: (
+            stable_rank(
+                case[
+                    "case_id"
+                ],
+                salt=(
+                    f"final:"
+                    f"{split_name}"
+                ),
+            )
+        ),
+    )
+
+
+def verify_repository_isolation(
     final_splits: dict[
         str,
         list[dict[str, Any]],
     ],
 ) -> None:
-    """
-    Ensure no base schema contributes any valid or
-    invalid descendant to more than one split.
-    """
-    parent_sets = {}
+    repository_sets = {}
 
     for (
         split_name,
         cases,
     ) in final_splits.items():
-
-        parent_sets[
+        repository_sets[
             split_name
         ] = {
             case["metadata"][
-                "parent_case_id"
+                "source_repository"
             ]
             for case in cases
         }
 
     if (
-        parent_sets["train"]
-        & parent_sets["dev"]
+        repository_sets[
+            "train"
+        ]
+        & repository_sets[
+            "dev"
+        ]
     ):
         raise ValueError(
-            "Base-schema leakage between "
-            "train and dev."
+            "Repository leakage "
+            "between train and dev."
         )
 
     if (
-        parent_sets["train"]
-        & parent_sets["test"]
+        repository_sets[
+            "train"
+        ]
+        & repository_sets[
+            "test"
+        ]
     ):
         raise ValueError(
-            "Base-schema leakage between "
-            "train and test."
+            "Repository leakage "
+            "between train and test."
         )
 
     if (
-        parent_sets["dev"]
-        & parent_sets["test"]
+        repository_sets[
+            "dev"
+        ]
+        & repository_sets[
+            "test"
+        ]
     ):
         raise ValueError(
-            "Base-schema leakage between "
-            "dev and test."
+            "Repository leakage "
+            "between dev and test."
         )
 
 
-def verify_unique_case_ids(
+def verify_source_schema_uniqueness(
     final_splits: dict[
         str,
         list[dict[str, Any]],
     ],
 ) -> None:
-    case_ids = []
+    source_schema_ids = []
 
     for cases in (
         final_splits.values()
     ):
-        case_ids.extend(
-            case["case_id"]
-            for case in cases
-        )
-
-    if len(case_ids) != len(
-        set(case_ids)
-    ):
-        raise ValueError(
-            "Duplicate final benchmark "
-            "case IDs detected."
-        )
-
-
-def verify_topology_coverage(
-    final_splits: dict[
-        str,
-        list[dict[str, Any]],
-    ],
-) -> None:
-    """
-    Every split must contain all ten topology
-    families through its valid cases.
-    """
-    for (
-        split_name,
-        cases,
-    ) in final_splits.items():
-
-        topologies = {
+        source_schema_ids.extend(
             case["metadata"][
-                "topology_family"
+                "source_schema_id"
             ]
             for case in cases
-            if case[
-                "ground_truth"
-            ]["valid"]
-        }
+        )
 
-        if len(topologies) != 10:
-            raise ValueError(
-                f"{split_name} contains "
-                f"{len(topologies)} "
-                "topology families; "
-                "expected 10."
+    if (
+        len(source_schema_ids)
+        != len(
+            set(
+                source_schema_ids
             )
+        )
+    ):
+        raise ValueError(
+            "A SchemaPile source "
+            "schema was reused in "
+            "multiple benchmark cases."
+        )
 
 
-def validate_all_cases(
+def create_toy_examples(
     final_splits: dict[
         str,
         list[dict[str, Any]],
     ],
 ) -> None:
-    for cases in (
-        final_splits.values()
-    ):
-
-        for case in cases:
-            validate_case_dict(case)
-
-
-def shuffle_split(
-    cases: list[dict[str, Any]],
-    *,
-    seed: int,
-) -> list[dict[str, Any]]:
-    shuffled = copy.deepcopy(
-        cases
+    TOY_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
-    rng = random.Random(seed)
+    valid_source = next(
+        case
+        for case
+        in final_splits[
+            "test"
+        ]
+        if case[
+            "ground_truth"
+        ]["valid"]
+    )
 
-    rng.shuffle(shuffled)
+    invalid_source = next(
+        case
+        for case
+        in final_splits[
+            "test"
+        ]
+        if (
+            not case[
+                "ground_truth"
+            ]["valid"]
+            and case[
+                "ground_truth"
+            ][
+                "errors"
+            ][0][
+                "error_type"
+            ]
+            == ERROR_ORDER[0]
+        )
+    )
 
-    return shuffled
+    valid_toy = copy.deepcopy(
+        valid_source
+    )
 
+    invalid_toy = copy.deepcopy(
+        invalid_source
+    )
 
-def save_individual_cases(
-    valid_records: dict[
-        str,
-        list[dict[str, Any]],
-    ],
-    invalid_records: dict[
-        str,
-        list[dict[str, Any]],
-    ],
-) -> None:
-    clear_generated_json()
+    valid_toy[
+        "case_id"
+    ] = "TOY_VALID_001"
 
-    for (
-        split_name,
-        cases,
-    ) in valid_records.items():
+    invalid_toy[
+        "case_id"
+    ] = "TOY_INVALID_001"
 
-        for case in cases:
+    valid_toy[
+        "metadata"
+    ]["source"] = "toy"
 
-            filename = (
-                f"{case['case_id'].lower()}_"
-                f"{split_name}.json"
-            )
+    invalid_toy[
+        "metadata"
+    ]["source"] = "toy"
 
-            save_json(
-                case,
-                GENERATED_VALID_DIR
-                / filename,
-            )
+    save_json(
+        valid_toy,
+        TOY_VALID_PATH,
+    )
 
-    for (
-        split_name,
-        cases,
-    ) in invalid_records.items():
-
-        for case in cases:
-
-            filename = (
-                f"{case['case_id'].lower()}"
-                ".json"
-            )
-
-            save_json(
-                case,
-                GENERATED_INVALID_DIR
-                / filename,
-            )
+    save_json(
+        invalid_toy,
+        TOY_INVALID_PATH,
+    )
 
 
 def build_manifest(
-    *,
-    domain_splits: dict[
-        str,
-        set[str],
-    ],
     final_splits: dict[
         str,
         list[dict[str, Any]],
     ],
+    *,
+    per_error_total: int,
 ) -> dict[str, Any]:
-
     error_distribution = Counter()
 
-    for cases in (
-        final_splits.values()
-    ):
-
-        for case in cases:
-
-            if not case[
-                "ground_truth"
-            ]["valid"]:
-
-                error_distribution.update(
-                    [
-                        case[
-                            "ground_truth"
-                        ][
-                            "errors"
-                        ][0][
-                            "error_type"
-                        ]
-                    ]
-                )
+    valid_total = 0
+    invalid_total = 0
 
     split_summary = {}
 
@@ -868,22 +986,75 @@ def build_manifest(
             - valid_count
         )
 
+        valid_total += (
+            valid_count
+        )
+
+        invalid_total += (
+            invalid_count
+        )
+
+        repository_count = len(
+            {
+                case[
+                    "metadata"
+                ][
+                    "source_repository"
+                ]
+                for case in cases
+            }
+        )
+
+        for case in cases:
+            if not case[
+                "ground_truth"
+            ]["valid"]:
+                error_distribution.update(
+                    [
+                        case[
+                            "ground_truth"
+                        ][
+                            "errors"
+                        ][0][
+                            "error_type"
+                        ]
+                    ]
+                )
+
         split_summary[
             split_name
         ] = {
-            "total": len(cases),
-            "valid": valid_count,
-            "invalid": invalid_count,
-            "domains": sorted(
-                domain_splits[
-                    split_name
-                ]
+            "total": (
+                len(cases)
+            ),
+            "valid": (
+                valid_count
+            ),
+            "invalid": (
+                invalid_count
+            ),
+            "source_repositories": (
+                repository_count
             ),
         }
 
     return {
         "benchmark_version": (
             BENCHMARK_VERSION
+        ),
+        "source_dataset": (
+            "SchemaPile-Perm"
+        ),
+        "source_paper": (
+            "SchemaPile: A Large "
+            "Collection of Relational "
+            "Database Schemas"
+        ),
+        "source_paper_doi": (
+            "10.1145/3654975"
+        ),
+        "source_dataset_doi": (
+            "10.5281/zenodo.12682521"
         ),
         "random_seed": (
             RANDOM_SEED
@@ -892,205 +1063,192 @@ def build_manifest(
             "Information Engineering "
             "Crow's-Foot ER"
         ),
-        "total_cases": sum(
-            len(cases)
-            for cases in (
-                final_splits.values()
-            )
+        "total_cases": (
+            valid_total
+            + invalid_total
         ),
-        "valid_cases": 140,
-        "invalid_cases": 140,
-        "domains": 14,
-        "topology_families": 10,
-        "error_types": 7,
-        "cases_per_error_type": 20,
+        "valid_cases": (
+            valid_total
+        ),
+        "invalid_cases": (
+            invalid_total
+        ),
+        "error_types": (
+            len(ERROR_ORDER)
+        ),
+        "cases_per_error_type": (
+            per_error_total
+        ),
         "split_strategy": (
-            "Domain-grouped split. "
-            "A domain and all schemas derived "
-            "from it occur in exactly one split."
+            "Deterministic "
+            "repository-grouped "
+            "70/15/15 split. "
+            "All schemas from the "
+            "same GitHub repository "
+            "remain in one split."
         ),
-        "splits": split_summary,
-        "error_distribution": dict(
-            sorted(
-                error_distribution.items()
+        "source_schema_reuse": (
+            "No SchemaPile source "
+            "schema is used more "
+            "than once in the final "
+            "benchmark."
+        ),
+        "splits": (
+            split_summary
+        ),
+        "error_distribution": (
+            dict(
+                sorted(
+                    error_distribution.items()
+                )
             )
         ),
     }
 
 
-def print_split_summary(
-    split_name: str,
-    cases: list[dict[str, Any]],
-) -> None:
-    valid_count = sum(
-        1
-        for case in cases
-        if case[
-            "ground_truth"
-        ]["valid"]
-    )
-
-    invalid_count = (
-        len(cases)
-        - valid_count
-    )
-
-    print(
-        f"{split_name.capitalize()}: "
-        f"{len(cases)} cases "
-        f"({valid_count} valid, "
-        f"{invalid_count} invalid)"
-    )
-
-
-def build_dataset() -> dict[
+def build_dataset(
+    requested_per_error: int | None = None,
+) -> dict[
     str,
     list[dict[str, Any]],
 ]:
-    """
-    Build the complete production benchmark.
-
-    Final size:
-    140 valid cases
-    140 invalid cases
-    280 total cases
-
-    Each of seven error categories has
-    exactly 20 invalid cases.
-    """
-    base_cases = (
-        generate_base_cases()
+    references = (
+        load_reference_cases()
     )
 
-    if len(base_cases) != 140:
-        raise ValueError(
-            "Expected exactly 140 "
-            "production base cases."
-        )
-
-    save_base_cases(
-        base_cases
-    )
-
-    domain_splits = (
-        split_domains(
-            base_cases
+    split_cases = (
+        split_reference_cases(
+            references
         )
     )
 
-    verify_domain_isolation(
-        domain_splits
-    )
-
-    split_base_cases = (
-        assign_base_cases_to_splits(
-            base_cases,
-            domain_splits,
+    eligibility = (
+        build_eligibility_cache(
+            references
         )
     )
 
-    valid_records = (
-        create_valid_records(
-            split_base_cases
+    (
+        per_error_total,
+        plan,
+    ) = choose_total_per_error(
+        split_cases,
+        eligibility,
+        requested_per_error,
+    )
+
+    print(
+        f"Selected "
+        f"{per_error_total} "
+        "cases per error type."
+    )
+
+    invalid_cases = (
+        create_invalid_cases(
+            plan
         )
     )
 
-    invalid_records = (
-        create_invalid_records(
-            split_base_cases
+    valid_cases = (
+        create_valid_cases(
+            split_cases,
+            plan,
+            invalid_cases,
         )
-    )
-
-    verify_error_distribution(
-        invalid_records
     )
 
     final_splits = {}
-
-    split_shuffle_seeds = {
-        "train": RANDOM_SEED + 1,
-        "dev": RANDOM_SEED + 2,
-        "test": RANDOM_SEED + 3,
-    }
 
     for split_name in (
         "train",
         "dev",
         "test",
     ):
-
         combined = (
-            valid_records[
+            valid_cases[
                 split_name
             ]
-            + invalid_records[
+            + invalid_cases[
                 split_name
             ]
         )
 
         final_splits[
             split_name
-        ] = shuffle_split(
-            combined,
-            seed=(
-                split_shuffle_seeds[
-                    split_name
+        ] = (
+            deterministic_shuffle(
+                combined,
+                split_name,
+            )
+        )
+
+    validator = (
+        get_er_case_validator()
+    )
+
+    case_ids = []
+
+    for cases in (
+        final_splits.values()
+    ):
+        for case in cases:
+            validator.validate(
+                case
+            )
+
+            case_ids.append(
+                case[
+                    "case_id"
                 ]
-            ),
+            )
+
+    if (
+        len(case_ids)
+        != len(
+            set(
+                case_ids
+            )
         )
-
-    validate_all_cases(
-        final_splits
-    )
-
-    verify_unique_case_ids(
-        final_splits
-    )
-
-    verify_parent_isolation(
-        final_splits
-    )
-
-    verify_topology_coverage(
-        final_splits
-    )
-
-    total_cases = sum(
-        len(cases)
-        for cases in (
-            final_splits.values()
-        )
-    )
-
-    if total_cases != 280:
+    ):
         raise ValueError(
-            f"Expected 280 final cases, "
-            f"found {total_cases}."
+            "Duplicate benchmark "
+            "case IDs detected."
         )
 
-    save_individual_cases(
-        valid_records,
-        invalid_records,
+    verify_repository_isolation(
+        final_splits
+    )
+
+    verify_source_schema_uniqueness(
+        final_splits
     )
 
     save_jsonl(
-        final_splits["train"],
+        final_splits[
+            "train"
+        ],
         TRAIN_PATH,
     )
 
     save_jsonl(
-        final_splits["dev"],
+        final_splits[
+            "dev"
+        ],
         DEV_PATH,
     )
 
     save_jsonl(
-        final_splits["test"],
+        final_splits[
+            "test"
+        ],
         TEST_PATH,
     )
 
     manifest = build_manifest(
-        domain_splits=domain_splits,
-        final_splits=final_splits,
+        final_splits,
+        per_error_total=(
+            per_error_total
+        ),
     )
 
     save_json(
@@ -1098,61 +1256,102 @@ def build_dataset() -> dict[
         MANIFEST_PATH,
     )
 
+    create_toy_examples(
+        final_splits
+    )
+
     print()
     print(
-        "Production benchmark "
+        "SchemaPile benchmark "
         "build complete."
     )
     print()
 
-    print_split_summary(
+    for split_name in (
         "train",
-        final_splits["train"],
-    )
-
-    print_split_summary(
         "dev",
-        final_splits["dev"],
-    )
-
-    print_split_summary(
         "test",
-        final_splits["test"],
-    )
+    ):
+        cases = final_splits[
+            split_name
+        ]
+
+        valid_count = sum(
+            1
+            for case in cases
+            if case[
+                "ground_truth"
+            ]["valid"]
+        )
+
+        invalid_count = (
+            len(cases)
+            - valid_count
+        )
+
+        print(
+            f"{split_name.capitalize()}: "
+            f"{len(cases):,} cases "
+            f"({valid_count:,} valid, "
+            f"{invalid_count:,} invalid)"
+        )
 
     print()
 
     print(
-        "Total cases: 280"
+        f"Total benchmark cases: "
+        f"{manifest['total_cases']:,}"
     )
 
     print(
-        "Valid cases: 140"
+        f"Cases per error type: "
+        f"{per_error_total:,}"
     )
 
     print(
-        "Invalid cases: 140"
-    )
-
-    print(
-        "Cases per error type: 20"
-    )
-
-    print()
-
-    print(
-        "Dataset manifest:"
-    )
-
-    print(
-        MANIFEST_PATH
+        f"Manifest: "
+        f"{MANIFEST_PATH}"
     )
 
     return final_splits
 
 
 def main() -> None:
-    build_dataset()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build the final "
+            "SchemaPile-based "
+            "ER validation benchmark."
+        )
+    )
+
+    parser.add_argument(
+        "--per-error",
+        default="auto",
+        help=(
+            "Number of invalid cases "
+            "per error category, or "
+            "'auto'. Default: auto."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    if (
+        args.per_error.lower()
+        == "auto"
+    ):
+        requested = None
+    else:
+        requested = int(
+            args.per_error
+        )
+
+    build_dataset(
+        requested_per_error=(
+            requested
+        )
+    )
 
 
 if __name__ == "__main__":

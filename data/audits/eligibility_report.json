@@ -1,0 +1,59 @@
+{
+  "reference_case_count": 7366,
+  "split_case_counts": {
+    "train": 5232,
+    "dev": 1034,
+    "test": 1100
+  },
+  "split_repository_counts": {
+    "train": 4128,
+    "dev": 856,
+    "test": 913
+  },
+  "eligibility_global": {
+    "FK_TARGET_NOT_KEY": 4476,
+    "FK_WRONG_ENTITY": 5681,
+    "COMPOSITE_FK_INCOMPLETE": 394,
+    "CARDINALITY_UNIQUENESS_CONFLICT": 966,
+    "PARTICIPATION_OPTIONALITY_CONFLICT": 7282,
+    "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 2164,
+    "MISSING_REQUIRED_RELATIONSHIP": 7366
+  },
+  "eligibility_by_split": {
+    "train": {
+      "FK_TARGET_NOT_KEY": 3224,
+      "FK_WRONG_ENTITY": 4050,
+      "COMPOSITE_FK_INCOMPLETE": 280,
+      "CARDINALITY_UNIQUENESS_CONFLICT": 668,
+      "PARTICIPATION_OPTIONALITY_CONFLICT": 5179,
+      "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 1565,
+      "MISSING_REQUIRED_RELATIONSHIP": 5232
+    },
+    "dev": {
+      "FK_TARGET_NOT_KEY": 600,
+      "FK_WRONG_ENTITY": 777,
+      "COMPOSITE_FK_INCOMPLETE": 60,
+      "CARDINALITY_UNIQUENESS_CONFLICT": 148,
+      "PARTICIPATION_OPTIONALITY_CONFLICT": 1021,
+      "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 310,
+      "MISSING_REQUIRED_RELATIONSHIP": 1034
+    },
+    "test": {
+      "FK_TARGET_NOT_KEY": 652,
+      "FK_WRONG_ENTITY": 854,
+      "COMPOSITE_FK_INCOMPLETE": 54,
+      "CARDINALITY_UNIQUENESS_CONFLICT": 150,
+      "PARTICIPATION_OPTIONALITY_CONFLICT": 1082,
+      "IDENTIFYING_RELATIONSHIP_KEY_ERROR": 289,
+      "MISSING_REQUIRED_RELATIONSHIP": 1100
+    }
+  },
+  "schema_size_summary": {
+    "min_tables": 2,
+    "max_tables": 20,
+    "min_columns": 2,
+    "max_columns": 200,
+    "min_foreign_keys": 1,
+    "max_foreign_keys": 29
+  }
+}

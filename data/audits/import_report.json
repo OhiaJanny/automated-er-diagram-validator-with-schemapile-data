@@ -1,0 +1,37 @@
+{
+  "source_dataset": "SchemaPile-Perm",
+  "source_doi": "10.1145/3654975",
+  "source_zenodo": "10.5281/zenodo.12682521",
+  "import_version": "1.0",
+  "raw_schema_count": 22989,
+  "accepted_reference_cases": 7366,
+  "distinct_source_repositories": 5897,
+  "rejected_schema_count": 15623,
+  "rejection_reasons": {
+    "case_ambiguous_column_names": 2,
+    "case_ambiguous_table_names": 9,
+    "fk_column_has_multiple_targets": 65,
+    "foreign_key_target_not_representable_key": 1246,
+    "multiple_fk_relations_same_table_pair": 839,
+    "no_foreign_keys": 4609,
+    "no_primary_keys": 29,
+    "self_referential_foreign_key": 700,
+    "too_few_tables": 5986,
+    "too_many_columns_in_table": 48,
+    "too_many_tables": 2060,
+    "too_many_total_columns": 30
+  },
+  "filters": {
+    "min_tables": 2,
+    "max_tables": 20,
+    "max_columns_per_table": 60,
+    "max_total_columns": 200,
+    "max_foreign_keys": 30,
+    "requires_foreign_key": true,
+    "requires_primary_key": true,
+    "requires_github_repository": true,
+    "self_referential_fk_allowed": false,
+    "multiple_fk_same_pair_allowed": false,
+    "fk_target_must_be_representable_key": true
+  }
+}

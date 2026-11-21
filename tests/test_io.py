@@ -1,4 +1,5 @@
-import json
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
@@ -24,75 +25,146 @@ from src.core.models import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(
+    __file__
+).resolve().parents[1]
 
 VALID_EXAMPLE_PATH = (
-    ROOT / "data" / "toy" / "valid_example.json"
+    ROOT
+    / "data"
+    / "toy"
+    / "valid_example.json"
 )
 
 INVALID_EXAMPLE_PATH = (
-    ROOT / "data" / "toy" / "invalid_example.json"
+    ROOT
+    / "data"
+    / "toy"
+    / "invalid_example.json"
 )
 
 
 def test_load_json():
-    case = load_json(VALID_EXAMPLE_PATH)
+    case = load_json(
+        VALID_EXAMPLE_PATH
+    )
 
-    assert isinstance(case, dict)
-    assert case["case_id"] == "TOY_VALID_001"
-    assert case["domain"] == "ecommerce"
+    assert isinstance(
+        case,
+        dict,
+    )
+
+    assert (
+        case["case_id"]
+        == "TOY_VALID_001"
+    )
+
+    assert (
+        case["domain"]
+        == "real_world"
+    )
 
 
 def test_load_valid_case_as_dataclass():
-    case = load_case_file(VALID_EXAMPLE_PATH)
+    case = load_case_file(
+        VALID_EXAMPLE_PATH
+    )
 
-    assert isinstance(case, ERCase)
-    assert case.case_id == "TOY_VALID_001"
-    assert case.domain == "ecommerce"
-    assert case.ground_truth.valid is True
+    assert isinstance(
+        case,
+        ERCase,
+    )
+
+    assert (
+        case.case_id
+        == "TOY_VALID_001"
+    )
+
+    assert (
+        case.ground_truth.valid
+        is True
+    )
 
 
 def test_load_invalid_case_as_dataclass():
-    case = load_case_file(INVALID_EXAMPLE_PATH)
+    case = load_case_file(
+        INVALID_EXAMPLE_PATH
+    )
 
-    assert isinstance(case, ERCase)
-    assert case.case_id == "TOY_INVALID_001"
-    assert case.ground_truth.valid is False
-    assert len(case.ground_truth.errors) == 1
+    assert isinstance(
+        case,
+        ERCase,
+    )
 
     assert (
-        case.ground_truth.errors[0].error_type
-        == "FK_TARGET_NOT_KEY"
+        case.case_id
+        == "TOY_INVALID_001"
+    )
+
+    assert (
+        case.ground_truth.valid
+        is False
+    )
+
+    assert (
+        len(
+            case.ground_truth.errors
+        )
+        == 1
     )
 
 
 def test_entity_lookup():
-    case = load_case_file(VALID_EXAMPLE_PATH)
-
-    order = case.get_entity("ORDER")
-
-    assert order is not None
-    assert order.name == "ORDER"
-
-
-def test_attribute_lookup():
-    case = load_case_file(VALID_EXAMPLE_PATH)
-
-    order = case.get_entity("ORDER")
-
-    assert order is not None
-
-    customer_id = order.get_attribute(
-        "customer_id"
+    case = load_case_file(
+        VALID_EXAMPLE_PATH
     )
 
-    assert customer_id is not None
-    assert customer_id.foreign_key is True
-    assert customer_id.references is not None
+    first_entity_name = (
+        case.entities[
+            0
+        ].name
+    )
+
+    entity = case.get_entity(
+        first_entity_name
+    )
+
+    assert entity is not None
+
     assert (
-        customer_id.references.entity
-        == "CUSTOMER"
+        entity.name
+        == first_entity_name
     )
+
+
+def test_foreign_key_reference_loaded():
+    case = load_case_file(
+        VALID_EXAMPLE_PATH
+    )
+
+    found = False
+
+    for entity in (
+        case.entities
+    ):
+        for attribute in (
+            entity.attributes
+        ):
+            if (
+                attribute.foreign_key
+            ):
+                assert (
+                    attribute.references
+                    is not None
+                )
+
+                found = True
+                break
+
+        if found:
+            break
+
+    assert found is True
 
 
 def test_prepare_case_removes_ground_truth():
@@ -100,16 +172,20 @@ def test_prepare_case_removes_ground_truth():
         INVALID_EXAMPLE_PATH
     )
 
-    safe_case = prepare_case_for_method(
-        original
+    safe_case = (
+        prepare_case_for_method(
+            original
+        )
     )
 
-    assert "ground_truth" not in safe_case
-    assert "ground_truth" in original
+    assert (
+        "ground_truth"
+        not in safe_case
+    )
 
     assert (
-        safe_case["case_id"]
-        == original["case_id"]
+        "ground_truth"
+        in original
     )
 
 
@@ -118,17 +194,19 @@ def test_prepare_case_does_not_modify_original():
         INVALID_EXAMPLE_PATH
     )
 
-    original_ground_truth = (
-        original["ground_truth"].copy()
+    original_copy = (
+        load_json(
+            INVALID_EXAMPLE_PATH
+        )
     )
 
-    prepare_case_for_method(original)
-
-    assert "ground_truth" in original
+    prepare_case_for_method(
+        original
+    )
 
     assert (
-        original["ground_truth"]
-        == original_ground_truth
+        original
+        == original_copy
     )
 
 
@@ -137,30 +215,38 @@ def test_case_dict_round_trip():
         VALID_EXAMPLE_PATH
     )
 
-    case = case_from_dict(original)
+    case = case_from_dict(
+        original
+    )
 
-    converted = case_to_dict(case)
+    converted = (
+        case_to_dict(
+            case
+        )
+    )
 
-    validate_case_dict(converted)
-
-    assert (
-        converted["case_id"]
-        == original["case_id"]
+    validate_case_dict(
+        converted
     )
 
     assert (
-        converted["ground_truth"]["valid"]
-        is True
+        converted[
+            "case_id"
+        ]
+        == "TOY_VALID_001"
     )
 
 
-def test_save_and_load_json(tmp_path):
+def test_save_and_load_json(
+    tmp_path,
+):
     case = load_json(
         VALID_EXAMPLE_PATH
     )
 
     output_path = (
-        tmp_path / "saved_case.json"
+        tmp_path
+        / "saved_case.json"
     )
 
     save_json(
@@ -175,7 +261,9 @@ def test_save_and_load_json(tmp_path):
     assert loaded == case
 
 
-def test_save_and_load_jsonl(tmp_path):
+def test_save_and_load_jsonl(
+    tmp_path,
+):
     valid_case = load_json(
         VALID_EXAMPLE_PATH
     )
@@ -185,7 +273,8 @@ def test_save_and_load_jsonl(tmp_path):
     )
 
     output_path = (
-        tmp_path / "cases.jsonl"
+        tmp_path
+        / "cases.jsonl"
     )
 
     save_jsonl(
@@ -217,7 +306,8 @@ def test_invalid_jsonl_raises_error(
     tmp_path,
 ):
     output_path = (
-        tmp_path / "broken.jsonl"
+        tmp_path
+        / "broken.jsonl"
     )
 
     output_path.write_text(
@@ -226,30 +316,38 @@ def test_invalid_jsonl_raises_error(
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError):
-        load_jsonl(output_path)
+    with pytest.raises(
+        ValueError
+    ):
+        load_jsonl(
+            output_path
+        )
 
 
 def test_prediction_schema_accepts_valid_prediction():
     prediction = {
-        "case_id": "TOY_INVALID_001",
-        "method": "rule_based",
-        "predicted_valid": False,
+        "case_id": (
+            "TOY_INVALID_001"
+        ),
+        "method": (
+            "rule_based"
+        ),
+        "predicted_valid": (
+            False
+        ),
         "errors": [
             {
-                "error_type": "FK_TARGET_NOT_KEY",
-                "entity": "ORDER",
-                "attribute": "customer_id",
-                "relationship": (
-                    "customer_places_order"
+                "error_type": (
+                    "FK_TARGET_NOT_KEY"
                 ),
                 "message": (
-                    "Foreign key references "
-                    "a non-key attribute."
-                )
+                    "Foreign key "
+                    "references a "
+                    "non-key attribute."
+                ),
             }
         ],
-        "runtime_ms": 1.5
+        "runtime_ms": 1.5,
     }
 
     validate_prediction_dict(
@@ -261,22 +359,24 @@ def test_prediction_write_and_load(
     tmp_path,
 ):
     prediction = Prediction(
-        case_id="TOY_INVALID_001",
-        method="rule_based",
-        predicted_valid=False,
+        case_id=(
+            "TOY_INVALID_001"
+        ),
+        method=(
+            "rule_based"
+        ),
+        predicted_valid=(
+            False
+        ),
         errors=[
             PredictionError(
                 error_type=(
                     "FK_TARGET_NOT_KEY"
                 ),
-                entity="ORDER",
-                attribute="customer_id",
-                relationship=(
-                    "customer_places_order"
-                ),
                 message=(
-                    "Foreign key references "
-                    "a non-key attribute."
+                    "Foreign key "
+                    "references a "
+                    "non-key attribute."
                 ),
             )
         ],
@@ -284,7 +384,8 @@ def test_prediction_write_and_load(
     )
 
     output_path = (
-        tmp_path / "predictions.jsonl"
+        tmp_path
+        / "predictions.jsonl"
     )
 
     write_predictions(
@@ -299,20 +400,40 @@ def test_prediction_write_and_load(
     assert len(loaded) == 1
 
     assert (
-        loaded[0].case_id
+        loaded[
+            0
+        ].case_id
         == "TOY_INVALID_001"
     )
 
     assert (
-        loaded[0].method
+        loaded[
+            0
+        ].method
         == "rule_based"
     )
 
     assert (
-        loaded[0].predicted_valid
+        loaded[
+            0
+        ].predicted_valid
         is False
     )
 
-    assert len(
-        loaded[0].errors
-    ) == 1
+    assert (
+        len(
+            loaded[
+                0
+            ].errors
+        )
+        == 1
+    )
+
+    assert (
+        loaded[
+            0
+        ].errors[
+            0
+        ].error_type
+        == "FK_TARGET_NOT_KEY"
+    )

@@ -1,36 +1,67 @@
-
-
 # ER Case Data Format
 
 ## 1. Purpose
 
-This document defines the common data representation used by every validation method.
+This document defines the common normalized ER representation used by all three validation methods.
 
-All three methods must operate on equivalent information.
+The source data comes from **SchemaPile-Perm**, but validators do not operate directly on SchemaPile's raw JSON. Eligible schemas are converted into the project's shared ERCase representation.
 
-The canonical dataset format is **JSON Lines (`.jsonl`)**, where each line contains one ER validation case.
+The canonical benchmark format is **JSON Lines (`.jsonl`)**, with one ER validation case per line.
 
-## 2. Dataset Files
+## 2. Data Flow
 
-The project may contain:
+```text
+SchemaPile-Perm v0.2
+        ↓
+data/raw/schemapile-perm.json.gz
+        ↓
+src/data/import_schemapile.py
+        ↓
+filter + normalize
+        ↓
+data/processed/reference_cases.jsonl
+        ↓
+src/data/eligibility_report.py
+        ↓
+controlled mutation eligibility audit
+        ↓
+src/data/build_dataset.py
+        ↓
+train.jsonl / dev.jsonl / test.jsonl
+```
+
+The final benchmark files are:
 
 ```text
 data/
 ├── train.jsonl
 ├── dev.jsonl
 ├── test.jsonl
+├── dataset_manifest.json
+├── audits/
+│   ├── import_report.json
+│   └── eligibility_report.json
 └── toy/
     ├── valid_example.json
     └── invalid_example.json
 ```
 
-`train.jsonl` and `dev.jsonl` may contain labeled examples for development.
+The raw and processed source pools are reproducible and may remain excluded from Git.
 
-The final test cases must be evaluated through the shared evaluation pipeline.
+## 3. Production Benchmark Size
 
-## 3. Case Structure
+| Split | Valid | Invalid | Total |
+|---|---:|---:|---:|
+| Train | 490 | 490 | 980 |
+| Dev | 105 | 105 | 210 |
+| Test | 105 | 105 | 210 |
+| **Total** | **700** | **700** | **1,400** |
 
-Each case contains the following major sections:
+There are **100 invalid cases per error category**.
+
+## 4. Case Structure
+
+Each stored benchmark case contains:
 
 ```text
 case_id
@@ -43,104 +74,118 @@ metadata
 ground_truth
 ```
 
-`ground_truth` is used only for dataset construction and evaluation. Validation methods must not use it when generating predictions.
+`ground_truth` is used only for construction, auditing, and evaluation.
 
-## 4. Example Valid Case
+Answer-bearing metadata is also construction/evaluation information and must not be exposed to validators.
+
+## 5. Case IDs
+
+`case_id` uniquely associates an input case with its prediction.
+
+Final method-facing IDs should be **opaque with respect to validity and error type**.
+
+Do not encode:
+
+```text
+VALID
+INVALID
+E01
+E02
+E03
+E04
+E05
+E06
+E07
+```
+
+inside IDs used by validators.
+
+## 6. Domain
+
+Because the project does not infer a reliable semantic domain for every SchemaPile source, normalized records use:
+
+```json
+"domain": "real_world"
+```
+
+Repository provenance is stored separately for audit and split construction.
+
+## 7. Simplified Normalized Example
 
 ```json
 {
-  "case_id": "ER_0001",
-  "domain": "university",
-  "description": "Students enroll in courses through enrollment records.",
+  "case_id": "CASE_A19F03D28B11",
+  "domain": "real_world",
+  "description": "Real-world relational schema normalized from SchemaPile-Perm.",
   "entities": [
     {
-      "name": "STUDENT",
+      "name": "users",
       "attributes": [
         {
-          "name": "student_id",
-          "type": "INTEGER",
+          "name": "id",
+          "type": "Integer",
           "primary_key": true,
-          "nullable": false
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Integer",
+          "primary_key": true,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
         },
         {
-          "name": "student_name",
-          "type": "VARCHAR",
+          "name": "user_id",
+          "type": "Integer",
           "primary_key": false,
-          "nullable": false
-        }
-      ]
-    },
-    {
-      "name": "COURSE",
-      "attributes": [
-        {
-          "name": "course_id",
-          "type": "INTEGER",
-          "primary_key": true,
-          "nullable": false
-        }
-      ]
-    },
-    {
-      "name": "ENROLLMENT",
-      "attributes": [
-        {
-          "name": "student_id",
-          "type": "INTEGER",
-          "primary_key": true,
           "foreign_key": true,
+          "nullable": false,
+          "unique": false,
           "references": {
-            "entity": "STUDENT",
-            "attribute": "student_id"
-          },
-          "nullable": false
-        },
-        {
-          "name": "course_id",
-          "type": "INTEGER",
-          "primary_key": true,
-          "foreign_key": true,
-          "references": {
-            "entity": "COURSE",
-            "attribute": "course_id"
-          },
-          "nullable": false
+            "entity": "users",
+            "attribute": "id"
+          }
         }
       ]
     }
   ],
   "relationships": [
     {
-      "name": "student_enrollment",
-      "parent": "STUDENT",
-      "child": "ENROLLMENT",
+      "name": "fk_001_orders_to_users",
+      "parent": "users",
+      "child": "orders",
       "parent_cardinality": "1",
       "child_cardinality": "0..*",
-      "identifying": true
-    },
-    {
-      "name": "course_enrollment",
-      "parent": "COURSE",
-      "child": "ENROLLMENT",
-      "parent_cardinality": "1",
-      "child_cardinality": "0..*",
-      "identifying": true
+      "identifying": false
     }
   ],
   "requirements": [
     {
       "requirement_id": "R1",
-      "text": "Each enrollment belongs to exactly one student."
-    },
-    {
-      "requirement_id": "R2",
-      "text": "Each enrollment belongs to exactly one course."
+      "text": "Each orders row must reference exactly one users row for this foreign-key relationship.",
+      "type": "relationship_cardinality",
+      "source": "orders",
+      "target": "users",
+      "source_min": 1,
+      "source_max": 1,
+      "target_min": 0,
+      "target_max": "*"
     }
   ],
   "metadata": {
-    "source": "synthetic",
-    "difficulty": "medium",
-    "version": 1
+    "source": "real_world",
+    "difficulty": "easy",
+    "version": 1,
+    "source_dataset": "SchemaPile-Perm",
+    "benchmark_version": "2.0"
   },
   "ground_truth": {
     "valid": true,
@@ -149,82 +194,71 @@ ground_truth
 }
 ```
 
-## 5. Invalid Cases
+This example illustrates the normalized shape; production cases may contain more entities, attributes, relationships, and provenance metadata.
 
-Invalid cases use the same ER structure.
+## 8. Entity Representation
 
-Only the relevant design component is mutated.
-
-Example:
+Each entity contains:
 
 ```json
 {
-  "ground_truth": {
-    "valid": false,
-    "errors": [
-      {
-        "error_type": "FK_TARGET_NOT_KEY",
-        "entity": "ENROLLMENT",
-        "attribute": "student_id",
-        "relationship": "student_enrollment"
-      }
-    ]
-  }
+  "name": "orders",
+  "attributes": []
 }
 ```
 
-## 6. Entity Representation
+Each attribute contains:
 
-Each entity must include:
+- `name`
+- `type`
+- `primary_key`
+- `foreign_key`
+- `nullable`
+- `unique`
 
-- `name`;
-- `attributes`.
+A foreign-key attribute also contains:
 
-Each attribute may include:
+```json
+"references": {
+  "entity": "users",
+  "attribute": "id"
+}
+```
 
-- `name`;
-- `type`;
-- `primary_key`;
-- `foreign_key`;
-- `nullable`;
-- `unique`;
-- `references`.
+## 9. Composite Primary Keys
 
-Composite keys are represented by marking each participating attribute with:
+Composite PKs are represented by setting:
 
 ```json
 "primary_key": true
 ```
 
-## 7. Foreign-Key Representation
+on every participating attribute.
 
-Foreign keys must identify their target explicitly:
+## 10. Foreign Keys
 
-```json
-"references": {
-  "entity": "PARENT_ENTITY",
-  "attribute": "parent_key"
-}
-```
+Every FK component contains an explicit reference target.
 
-For composite foreign keys, each component must specify the corresponding referenced attribute.
+For composite foreign keys, each local component maps to the corresponding referenced component.
 
-## 8. Relationship Representation
+The importer preserves SchemaPile's multi-column FK structure.
+
+## 11. Relationship Representation
 
 Each relationship contains:
 
 ```json
 {
-  "name": "relationship_name",
-  "parent": "PARENT_ENTITY",
-  "child": "CHILD_ENTITY",
+  "name": "fk_001_orders_to_users",
+  "parent": "users",
+  "child": "orders",
   "parent_cardinality": "1",
   "child_cardinality": "0..*",
   "identifying": false
 }
 ```
 
-Allowed cardinality strings initially include:
+Supported cardinalities:
 
 ```text
 0..1
@@ -233,76 +267,219 @@ Allowed cardinality strings initially include:
 1..*
 ```
 
-Additional forms may be added only through the shared schema.
+## 12. Cardinality Derivation
 
-## 9. Requirements
+SchemaPile does not directly store Crow's-Foot notation, so the project derives cardinalities deterministically.
 
-Requirements provide the semantic rules against which the candidate ER design is evaluated.
+### Child-to-parent participation
+
+If all FK components are non-null:
+
+```text
+parent_cardinality = "1"
+```
+
+If any FK component is nullable:
+
+```text
+parent_cardinality = "0..1"
+```
+
+### Parent-to-child multiplicity
+
+If the FK is represented as unique:
+
+```text
+child_cardinality = "0..1"
+```
+
+Otherwise:
+
+```text
+child_cardinality = "0..*"
+```
+
+The project does not infer that every parent must have at least one child from an FK alone.
+
+## 13. Identifying Relationships
+
+A relationship is marked:
+
+```json
+"identifying": true
+```
+
+when all local FK components also participate in the child's primary key.
+
+Otherwise it is `false`.
+
+## 14. Requirements
+
+Requirements preserve expected relationship semantics independently of the candidate design.
 
 Example:
 
 ```json
 {
-  "requirement_id": "R3",
-  "text": "Each order must belong to exactly one customer."
-}
-```
-
-If a requirement has a machine-readable form, it may additionally contain:
-
-```json
-{
+  "requirement_id": "R1",
+  "text": "Each orders row must reference exactly one users row for this foreign-key relationship.",
   "type": "relationship_cardinality",
-  "source": "ORDER",
-  "target": "CUSTOMER",
+  "source": "orders",
+  "target": "users",
   "source_min": 1,
-  "source_max": 1
+  "source_max": 1,
+  "target_min": 0,
+  "target_max": "*"
 }
 ```
 
-Natural-language text should still be retained for the LLM method and for human interpretation.
+Natural-language text supports the LLM and human interpretation.
 
-## 10. Ground Truth
+Machine-readable fields support deterministic and constraint-solver validation.
 
-Ground truth contains:
+During controlled mutation, requirements remain unchanged so the intended design can be compared with the mutated candidate structure.
+
+## 15. Ground Truth
+
+Valid case:
 
 ```json
 {
-  "valid": false,
+  "valid": true,
   "errors": []
 }
 ```
 
-Each error must use a label defined in `docs/error_taxonomy.md`.
-
-Ground-truth labels must not be passed to a validator during prediction.
-
-## 11. Metadata
-
-Recommended metadata:
+Invalid benchmark v2.0 case:
 
 ```json
 {
-  "source": "synthetic",
-  "domain": "ecommerce",
-  "difficulty": "hard",
-  "error_count": 2,
-  "generator_version": "1.0",
-  "seed": 42
+  "valid": false,
+  "errors": [
+    {
+      "error_type": "FK_TARGET_NOT_KEY",
+      "entity": "orders",
+      "attribute": "user_id",
+      "relationship": "fk_001_orders_to_users",
+      "details": {}
+    }
+  ]
 }
 ```
 
-Metadata must not encode the correct answer in a way that can leak ground truth to a method.
+Allowed labels are defined in `docs/error_taxonomy.md`.
 
-## 12. PlantUML and PNG Files
+## 16. Single-Error Benchmark Policy
 
-PlantUML and PNG versions may be generated for:
+The current benchmark contains:
+
+- 700 valid cases;
+- 700 controlled single-error invalid cases;
+- no multi-error production cases.
+
+This supports clean per-error evaluation.
+
+## 17. Stored Metadata
+
+Stored benchmark records may contain audit/provenance fields such as:
+
+```text
+source
+difficulty
+version
+source_dataset
+source_schema_id
+source_url
+source_repository
+license
+import_version
+reference_status
+table_count
+column_count
+foreign_key_count
+composite_foreign_key_count
+benchmark_version
+split
+```
+
+Controlled invalid records may additionally contain:
+
+```text
+parent_case_id
+mutation
+mutation_version
+mutation_seed
+mutation_source
+error_count
+```
+
+These construction fields are useful for reproducibility but are **not prediction features**.
+
+## 18. Method-Facing Sanitization
+
+Before a case is passed to a validator:
+
+1. remove `ground_truth`;
+2. remove answer-bearing mutation metadata;
+3. use a case ID that does not encode validity or error type;
+4. prevent other direct benchmark-answer leakage.
+
+At minimum, these fields must never reach a validator:
+
+```text
+mutation
+mutation_version
+mutation_seed
+mutation_source
+error_count
+```
+
+The same policy applies to all three methods.
+
+## 19. Repository-Grouped Splitting
+
+A deterministic hash assigns source repositories to train/dev/test.
+
+All schemas from the same GitHub repository remain in one split.
+
+The final benchmark also prevents reuse of the same SchemaPile source schema.
+
+## 20. Reference Pool
+
+The production import produced:
+
+```text
+22,989 raw schemas screened
+7,366 accepted reference cases
+5,897 distinct accepted source repositories
+15,623 rejected schemas
+```
+
+The 1,400-case benchmark is selected from the accepted pool under eligibility, balance, split, and non-reuse constraints.
+
+## 21. PlantUML and PNG
+
+PlantUML and PNG may be generated for:
 
 - visual inspection;
-- poster figures;
-- human validation;
-- case demonstrations.
+- report/poster figures;
+- human review;
+- demonstrations.
 
-They are not the authoritative ground-truth representation.
+The authoritative evaluation representation is normalized JSON/JSONL.
 
-The canonical representation used for evaluation is the structured JSON case.
+## 22. Validation Schemas
+
+Cases:
+
+```text
+schemas/er_case.schema.json
+```
+
+Predictions:
+
+```text
+schemas/prediction.schema.json
+```
+
+At the current SchemaPile benchmark milestone, the shared suite passes **47 tests**.

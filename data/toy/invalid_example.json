@@ -1,22 +1,62 @@
 {
   "case_id": "TOY_INVALID_001",
-  "domain": "ecommerce",
-  "description": "An intentionally invalid ER design in which ORDER.customer_id references a non-key CUSTOMER attribute.",
+  "domain": "real_world",
+  "description": "Real-world relational schema imported from SchemaPile-Perm. Source repository: machinshin/nitro.",
   "entities": [
     {
-      "name": "CUSTOMER",
+      "name": "business_rating",
       "attributes": [
         {
-          "name": "customer_id",
-          "type": "INTEGER",
+          "name": "business_id",
+          "type": "Varchar",
           "primary_key": true,
           "foreign_key": false,
           "nullable": false,
           "unique": true
         },
         {
-          "name": "customer_name",
-          "type": "VARCHAR",
+          "name": "name",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "avg_rating",
+          "type": "Float",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "num_reviews",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "latitude",
+          "type": "Float",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "longitude",
+          "type": "Float",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "timestamp",
+          "type": "Datetime",
           "primary_key": false,
           "foreign_key": false,
           "nullable": false,
@@ -25,31 +65,112 @@
       ]
     },
     {
-      "name": "ORDER",
+      "name": "tweets",
       "attributes": [
         {
-          "name": "order_id",
-          "type": "INTEGER",
+          "name": "tweets_id",
+          "type": "Integer",
           "primary_key": true,
           "foreign_key": false,
           "nullable": false,
           "unique": true
         },
         {
-          "name": "customer_id",
-          "type": "INTEGER",
+          "name": "business_id",
+          "type": "Varchar",
           "primary_key": false,
           "foreign_key": true,
           "nullable": false,
           "unique": false,
           "references": {
-            "entity": "CUSTOMER",
-            "attribute": "customer_name"
+            "entity": "business_rating",
+            "attribute": "name"
           }
         },
         {
-          "name": "order_date",
-          "type": "DATE",
+          "name": "num_tweets",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "follower_count",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "timestamp",
+          "type": "Datetime",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "yelp_review",
+      "attributes": [
+        {
+          "name": "review_id",
+          "type": "Integer",
+          "primary_key": true,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "business_id",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": true,
+          "nullable": false,
+          "unique": false,
+          "references": {
+            "entity": "business_rating",
+            "attribute": "business_id"
+          }
+        },
+        {
+          "name": "rating",
+          "type": "Float",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "excerpt",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "user_name",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "user_id",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "time_created",
+          "type": "Datetime",
           "primary_key": false,
           "foreign_key": false,
           "nullable": false,
@@ -60,9 +181,17 @@
   ],
   "relationships": [
     {
-      "name": "customer_places_order",
-      "parent": "CUSTOMER",
-      "child": "ORDER",
+      "name": "fk_001_tweets_to_business_rating",
+      "parent": "business_rating",
+      "child": "tweets",
+      "parent_cardinality": "1",
+      "child_cardinality": "0..*",
+      "identifying": false
+    },
+    {
+      "name": "fk_002_yelp_review_to_business_rating",
+      "parent": "business_rating",
+      "child": "yelp_review",
       "parent_cardinality": "1",
       "child_cardinality": "0..*",
       "identifying": false
@@ -71,10 +200,21 @@
   "requirements": [
     {
       "requirement_id": "R1",
-      "text": "Every order must belong to exactly one customer.",
+      "text": "Each tweets row must reference exactly one business_rating row for this foreign-key relationship.",
       "type": "relationship_cardinality",
-      "source": "ORDER",
-      "target": "CUSTOMER",
+      "source": "tweets",
+      "target": "business_rating",
+      "source_min": 1,
+      "source_max": 1,
+      "target_min": 0,
+      "target_max": "*"
+    },
+    {
+      "requirement_id": "R2",
+      "text": "Each yelp_review row must reference exactly one business_rating row for this foreign-key relationship.",
+      "type": "relationship_cardinality",
+      "source": "yelp_review",
+      "target": "business_rating",
       "source_min": 1,
       "source_max": 1,
       "target_min": 0,
@@ -85,23 +225,44 @@
     "source": "toy",
     "difficulty": "easy",
     "version": 1,
+    "source_dataset": "SchemaPile-Perm",
+    "source_schema_id": "305175_1.sql",
+    "source_url": "https://github.com/machinshin/Nitro/blob/8ca62aea5a7cde09ad99bb0fa13b891aabcf3f82/play/conf/evolutions/default/1.sql?raw=true\n",
+    "source_repository": "machinshin/nitro",
+    "license": "MIT",
+    "import_version": "1.0",
+    "reference_status": "reference_consistent",
+    "table_count": 3,
+    "column_count": 19,
+    "foreign_key_count": 2,
+    "composite_foreign_key_count": 0,
     "error_count": 1,
-    "generator_version": "1.0",
-    "seed": 2
+    "parent_case_id": "SP_F1A7DC664404",
+    "mutation": "FK_TARGET_NOT_KEY",
+    "mutation_version": "3.0",
+    "mutation_seed": 1761975530,
+    "mutation_source": "controlled",
+    "split": "test",
+    "benchmark_version": "2.0"
   },
   "ground_truth": {
     "valid": false,
     "errors": [
       {
         "error_type": "FK_TARGET_NOT_KEY",
-        "entity": "ORDER",
-        "attribute": "customer_id",
-        "relationship": "customer_places_order",
         "details": {
-          "referenced_entity": "CUSTOMER",
-          "referenced_attribute": "customer_name",
-          "expected_attribute": "customer_id"
-        }
+          "original_reference": {
+            "entity": "business_rating",
+            "attribute": "business_id"
+          },
+          "mutated_reference": {
+            "entity": "business_rating",
+            "attribute": "name"
+          }
+        },
+        "entity": "tweets",
+        "attribute": "business_id",
+        "relationship": "fk_001_tweets_to_business_rating"
       }
     ]
   }

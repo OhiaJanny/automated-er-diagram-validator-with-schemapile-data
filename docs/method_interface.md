@@ -1,39 +1,12 @@
-
-
 # Validator Method Interface
 
 ## 1. Purpose
 
-This document defines the software contract that all three validation methods must follow.
+This document defines the software contract followed by all three ER validation methods.
 
-Each method may use a completely different internal algorithm, but its external input and output must follow the same interface.
+The three methods may use different internal algorithms, but they must receive equivalent normalized input and return the same prediction format.
 
-## 2. Common Validator Contract
-
-Conceptually, every method implements:
-
-```python
-prediction = validator.validate(case)
-```
-
-where:
-
-- `case` is one normalized ER case;
-- `prediction` follows the shared prediction schema.
-
-## 3. Required Python Interface
-
-Each method should expose a validator class containing:
-
-```python
-class Validator:
-    method_name: str
-
-    def validate(self, case: dict) -> dict:
-        ...
-```
-
-The method name must be one of:
+Supported method names:
 
 ```text
 rule_based
@@ -41,55 +14,142 @@ constraint_solver
 llm_based
 ```
 
+## 2. Shared Validation Task
+
+For each normalized ER case, a validator determines:
+
+1. whether the candidate design is valid under the seven-error taxonomy; and
+2. which error label(s) are present when invalid.
+
+All methods are evaluated on the same SchemaPile-derived benchmark.
+
+## 3. Common Base Class
+
+Every validator must inherit from:
+
+```python
+from src.core.validator_interface import BaseValidator
+```
+
+Conceptually:
+
+```python
+from src.core.models import Prediction
+from src.core.validator_interface import BaseValidator
+
+
+class MyValidator(BaseValidator):
+    method_name = "rule_based"
+
+    def _validate_case(self, case: dict) -> Prediction:
+        ...
+```
+
+The public call is:
+
+```python
+prediction = validator.validate(case)
+```
+
+`BaseValidator` centralizes shared input/output checks, runtime measurement, prediction consistency, and batch behavior.
+
 ## 4. Standard Input
 
-`validate()` receives one ER case.
+A validator may reason from:
 
-Ground-truth labels must be removed or ignored before validation.
-
-The validator may access:
-
-- case ID;
+- opaque case ID;
 - domain;
 - entities;
 - attributes;
-- keys;
-- foreign keys;
+- data types;
+- primary-key membership;
+- foreign-key membership;
+- reference targets;
+- uniqueness;
+- nullability;
 - relationships;
 - cardinalities;
+- identifying-relationship flags;
 - requirements.
 
-It must not access the gold answer during prediction.
+The normalized format is defined in:
 
-## 5. Standard Output
+```text
+docs/data_format.md
+```
 
-Each method must return:
+## 5. Prohibited Input
+
+A validator must not receive or use the gold answer.
+
+Before prediction, method-facing input must remove:
+
+```text
+ground_truth
+mutation
+mutation_version
+mutation_seed
+mutation_source
+error_count
+```
+
+and any equivalent answer-bearing field.
+
+Case IDs must not encode:
+
+```text
+VALID
+INVALID
+E01
+E02
+E03
+E04
+E05
+E06
+E07
+```
+
+The same sanitization policy applies to all methods.
+
+## 6. Provenance Is Not a Prediction Feature
+
+SchemaPile provenance is retained for reproducibility and split construction, not as evidence for validity.
+
+Validators must not use source repository, source URL, source SchemaPile ID, license, or parent-case ID to infer the answer.
+
+## 7. Standard Output
+
+Predictions must conform to:
+
+```text
+schemas/prediction.schema.json
+```
+
+Example:
 
 ```json
 {
-  "case_id": "ER_0042",
+  "case_id": "CASE_A19F03D28B11",
   "method": "rule_based",
   "predicted_valid": false,
   "errors": [
     {
       "error_type": "FK_TARGET_NOT_KEY",
-      "entity": "ORDER",
-      "attribute": "customer_id",
-      "relationship": "order_customer",
-      "message": "Foreign key references a non-key attribute."
+      "entity": "orders",
+      "attribute": "user_id",
+      "relationship": "fk_001_orders_to_users",
+      "message": "Foreign key references an attribute that is not a key."
     }
   ],
-  "runtime_ms": 12.4
+  "runtime_ms": 2.4
 }
 ```
 
-## 6. Valid Prediction
-
-A method predicting no error must return:
+For a valid prediction:
 
 ```json
 {
-  "case_id": "ER_0001",
+  "case_id": "CASE_41CF74F318A2",
   "method": "constraint_solver",
   "predicted_valid": true,
   "errors": [],
@@ -97,15 +157,11 @@ A method predicting no error must return:
 }
 ```
 
-## 7. Error Labels
+If `predicted_valid` is `true`, `errors` must be empty.
 
-`error_type` must use labels from:
+If `predicted_valid` is `false`, at least one error must be returned.
 
-```text
-docs/error_taxonomy.md
-```
-
-Initially supported:
+## 8. Allowed Error Labels
 
 ```text
 FK_TARGET_NOT_KEY
@@ -117,131 +173,186 @@ IDENTIFYING_RELATIONSHIP_KEY_ERROR
 MISSING_REQUIRED_RELATIONSHIP
 ```
 
-## 8. Command-Line Interface
+Definitions are in:
 
-Each method should support the same command pattern.
+```text
+docs/error_taxonomy.md
+```
 
-Example:
+## 9. Dataset Usage
+
+Production benchmark:
+
+```text
+data/train.jsonl
+data/dev.jsonl
+data/test.jsonl
+```
+
+Current split:
+
+```text
+Train: 980
+Dev:   210
+Test:  210
+Total: 1,400
+```
+
+The test split is held out for final comparison.
+
+Development and tuning should use train/dev only.
+
+## 10. Repository-Grouped Test Design
+
+Schemas from the same source GitHub repository cannot appear in multiple splits.
+
+Methods must not circumvent the split by retrieving original source records from the web during test prediction.
+
+## 11. Command-Line Interface
+
+Rule-based:
 
 ```bash
-python -m src.methods.rule_based.validator \
-    --input data/test.jsonl \
-    --output outputs/rule_based/predictions.jsonl
+python -m src.methods.rule_based.validator --input data/test.jsonl --output outputs/rule_based/predictions.jsonl
 ```
 
 Constraint solver:
 
 ```bash
-python -m src.methods.constraint_solver.validator \
-    --input data/test.jsonl \
-    --output outputs/constraint_solver/predictions.jsonl
+python -m src.methods.constraint_solver.validator --input data/test.jsonl --output outputs/constraint_solver/predictions.jsonl
 ```
 
-LLM validator:
+LLM:
 
 ```bash
-python -m src.methods.llm_based.validator \
-    --input data/test.jsonl \
-    --output outputs/llm_based/predictions.jsonl
+python -m src.methods.llm_based.validator --input data/test.jsonl --output outputs/llm_based/predictions.jsonl
 ```
 
-## 9. Batch Processing
+## 12. Batch Processing
 
-Each validator must:
+Each method should:
 
-1. load input cases;
-2. validate each case independently;
-3. record runtime;
-4. produce one prediction per case;
-5. preserve the original `case_id`;
-6. write predictions as JSONL.
+1. load the requested JSONL file;
+2. apply shared leakage-safe input preparation;
+3. validate each case independently;
+4. preserve the opaque case ID;
+5. measure runtime;
+6. produce one prediction per input case;
+7. write predictions as JSONL.
 
-One failed case should not terminate evaluation of the entire dataset.
+## 13. Rule-Based Method
 
-## 10. Runtime Measurement
+Location:
 
-Runtime must be measured around the validation operation.
-
-Example:
-
-```python
-start = time.perf_counter()
-prediction = validator.validate(case)
-runtime_ms = (time.perf_counter() - start) * 1000
+```text
+src/methods/rule_based/validator.py
 ```
 
-For the LLM method, API/network latency should be reported as part of inference runtime and documented separately where appropriate.
+Method name:
 
-## 11. Method-Specific Freedom
+```text
+rule_based
+```
 
-Each teammate may choose the internal implementation of their assigned method.
+The implementation may use deterministic rules, NetworkX, graph traversal, key/FK checks, relationship/requirement checks, cardinality/uniqueness checks, nullability checks, and identifying-key checks.
 
-### Rule-Based Method
+Output:
 
-May use:
+```text
+outputs/rule_based/predictions.jsonl
+```
 
-- Python;
-- NetworkX;
-- deterministic validation functions;
-- graph traversal;
-- key/relationship consistency rules.
-
-### Constraint-Solver Method
-
-May use:
-
-- Python;
-- Z3;
-- Boolean constraints;
-- integer/cardinality constraints;
-- satisfiability checking.
-
-### LLM-Based Method
-
-May use:
-
-- a documented LLM;
-- a fixed prompt template;
-- structured JSON output;
-- deterministic or low-temperature generation settings where supported.
-
-The LLM prompt must not contain test-case answers.
-
-## 12. Required Method Documentation
-
-Each method owner must provide:
-
-- brief description;
-- algorithm or pseudocode;
-- dependencies;
-- assumptions;
-- command to run;
-- parameters;
-- output location;
-- known limitations.
-
-This information will later be incorporated into the project README and paper.
-
-## 13. Method-Specific Tests
-
-Each method owner is responsible for their unit test:
+Tests:
 
 ```text
 tests/test_rule_based.py
+```
+
+## 14. Constraint-Solver Method
+
+Location:
+
+```text
+src/methods/constraint_solver/validator.py
+```
+
+Method name:
+
+```text
+constraint_solver
+```
+
+The implementation may use Python, Z3, Boolean constraints, cardinality constraints, key/FK constraints, and satisfiability checking.
+
+Output:
+
+```text
+outputs/constraint_solver/predictions.jsonl
+```
+
+Tests:
+
+```text
 tests/test_solver.py
+```
+
+## 15. LLM-Based Method
+
+Location:
+
+```text
+src/methods/llm_based/validator.py
+```
+
+Prompt:
+
+```text
+src/methods/llm_based/prompt.txt
+```
+
+Method name:
+
+```text
+llm_based
+```
+
+The LLM must receive the same leakage-free candidate information as the other methods.
+
+The prompt should define the seven labels, request structured output, prohibit unsupported labels, and avoid all gold labels/mutation metadata.
+
+Model name, prompt version, decoding settings, retries, and structured-output strategy should be documented.
+
+Output:
+
+```text
+outputs/llm_based/predictions.jsonl
+```
+
+Tests:
+
+```text
 tests/test_llm.py
 ```
 
-The Benchmark/Integration Lead is responsible for:
+## 16. Shared Evaluation
+
+Individual validators do not calculate their own final comparison metrics.
+
+Shared evaluation belongs under:
 
 ```text
-tests/test_data_schema.py
-tests/test_evaluation.py
+src/evaluation/
 ```
 
-## 14. Output Directories
+including:
 
-Each method writes only to its assigned directory:
+```text
+src/evaluation/metrics.py
+src/evaluation/evaluate.py
+src/evaluation/compare_methods.py
+```
+
+## 17. Output Directories
 
 ```text
 outputs/
@@ -250,29 +361,26 @@ outputs/
 └── llm_based/
 ```
 
-Methods must not overwrite another method's output.
+A method must not overwrite another method's predictions.
 
-## 15. Evaluation Separation
+## 18. Reproducibility
 
-Individual validators do not calculate final comparison metrics.
+Where randomness exists:
 
-Final metrics are computed centrally by:
+- document the seed;
+- expose it as a parameter where practical;
+- record relevant configuration;
+- preserve case IDs;
+- preserve prompt/model versions.
+
+## 19. Current Shared-Test Status
+
+At the current SchemaPile benchmark milestone:
 
 ```text
-src/evaluation/metrics.py
-src/evaluation/evaluate.py
-src/evaluation/compare_methods.py
+pytest -v
 ```
 
-This prevents each method from using different evaluation definitions.
+passes **47 tests**.
 
-## 16. Reproducibility
-
-Where randomness is used:
-
-- document the random seed;
-- expose the seed as a parameter where practical;
-- record relevant configuration;
-- preserve case IDs.
-
-The same test cases must produce a comparable set of predictions across all methods.
+Method-specific tests may increase the total as the validators are completed.

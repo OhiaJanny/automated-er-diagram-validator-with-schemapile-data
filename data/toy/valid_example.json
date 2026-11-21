@@ -1,22 +1,30 @@
 {
   "case_id": "TOY_VALID_001",
-  "domain": "ecommerce",
-  "description": "A customer may place zero or many orders, and every order belongs to exactly one customer.",
+  "domain": "real_world",
+  "description": "Real-world relational schema imported from SchemaPile-Perm. Source repository: whyuki/cda_2005.",
   "entities": [
     {
-      "name": "CUSTOMER",
+      "name": "customers_cats",
       "attributes": [
         {
-          "name": "customer_id",
-          "type": "INTEGER",
+          "name": "cat_id",
+          "type": "Int",
           "primary_key": true,
           "foreign_key": false,
           "nullable": false,
           "unique": true
         },
         {
-          "name": "customer_name",
-          "type": "VARCHAR",
+          "name": "cat_name",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "cat_description",
+          "type": "Text",
           "primary_key": false,
           "foreign_key": false,
           "nullable": false,
@@ -25,44 +33,198 @@
       ]
     },
     {
-      "name": "ORDER",
+      "name": "customers",
       "attributes": [
         {
-          "name": "order_id",
-          "type": "INTEGER",
+          "name": "customer_id",
+          "type": "Int",
           "primary_key": true,
           "foreign_key": false,
           "nullable": false,
           "unique": true
         },
         {
-          "name": "customer_id",
-          "type": "INTEGER",
+          "name": "customer_name",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "customer_email",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "cat_id",
+          "type": "Int",
           "primary_key": false,
           "foreign_key": true,
           "nullable": false,
           "unique": false,
           "references": {
-            "entity": "CUSTOMER",
-            "attribute": "customer_id"
+            "entity": "customers_cats",
+            "attribute": "cat_id"
           }
+        }
+      ]
+    },
+    {
+      "name": "jobs",
+      "attributes": [
+        {
+          "name": "job_id",
+          "type": "Int",
+          "primary_key": true,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
         },
         {
-          "name": "order_date",
-          "type": "DATE",
+          "name": "job_state",
+          "type": "Char",
           "primary_key": false,
           "foreign_key": false,
           "nullable": false,
           "unique": false
+        },
+        {
+          "name": "job_title",
+          "type": "Varchar",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "job_start",
+          "type": "Datetime",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "job_end",
+          "type": "Datetime",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "job_description",
+          "type": "Text",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "customer_id",
+          "type": "Int",
+          "primary_key": false,
+          "foreign_key": true,
+          "nullable": false,
+          "unique": false,
+          "references": {
+            "entity": "customers",
+            "attribute": "customer_id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "quotes",
+      "attributes": [
+        {
+          "name": "quote_id",
+          "type": "Int",
+          "primary_key": true,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "quote_state",
+          "type": "Char",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "quote_date",
+          "type": "Date",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "quote_amount",
+          "type": "Int",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "quote_final_date",
+          "type": "Date",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "quote_final_amount",
+          "type": "Int",
+          "primary_key": false,
+          "foreign_key": false,
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "job_id",
+          "type": "Int",
+          "primary_key": false,
+          "foreign_key": true,
+          "nullable": false,
+          "unique": false,
+          "references": {
+            "entity": "jobs",
+            "attribute": "job_id"
+          }
         }
       ]
     }
   ],
   "relationships": [
     {
-      "name": "customer_places_order",
-      "parent": "CUSTOMER",
-      "child": "ORDER",
+      "name": "fk_001_customers_to_customers_cats",
+      "parent": "customers_cats",
+      "child": "customers",
+      "parent_cardinality": "1",
+      "child_cardinality": "0..*",
+      "identifying": false
+    },
+    {
+      "name": "fk_002_jobs_to_customers",
+      "parent": "customers",
+      "child": "jobs",
+      "parent_cardinality": "1",
+      "child_cardinality": "0..*",
+      "identifying": false
+    },
+    {
+      "name": "fk_003_quotes_to_jobs",
+      "parent": "jobs",
+      "child": "quotes",
       "parent_cardinality": "1",
       "child_cardinality": "0..*",
       "identifying": false
@@ -71,10 +233,32 @@
   "requirements": [
     {
       "requirement_id": "R1",
-      "text": "Every order must belong to exactly one customer.",
+      "text": "Each customers row must reference exactly one customers_cats row for this foreign-key relationship.",
       "type": "relationship_cardinality",
-      "source": "ORDER",
-      "target": "CUSTOMER",
+      "source": "customers",
+      "target": "customers_cats",
+      "source_min": 1,
+      "source_max": 1,
+      "target_min": 0,
+      "target_max": "*"
+    },
+    {
+      "requirement_id": "R2",
+      "text": "Each jobs row must reference exactly one customers row for this foreign-key relationship.",
+      "type": "relationship_cardinality",
+      "source": "jobs",
+      "target": "customers",
+      "source_min": 1,
+      "source_max": 1,
+      "target_min": 0,
+      "target_max": "*"
+    },
+    {
+      "requirement_id": "R3",
+      "text": "Each quotes row must reference exactly one jobs row for this foreign-key relationship.",
+      "type": "relationship_cardinality",
+      "source": "quotes",
+      "target": "jobs",
       "source_min": 1,
       "source_max": 1,
       "target_min": 0,
@@ -85,9 +269,21 @@
     "source": "toy",
     "difficulty": "easy",
     "version": 1,
+    "source_dataset": "SchemaPile-Perm",
+    "source_schema_id": "094336_TP_Freelancer.sql",
+    "source_url": "https://github.com/Whyuki/CDA_2005/blob/234636b26fd76fd5cae171a250d3d68447426f80/FOAD_WEB/TP_Freelancer/consignes/TP_Freelancer.sql?raw=true\n",
+    "source_repository": "whyuki/cda_2005",
+    "license": "UNLICENSE",
+    "import_version": "1.0",
+    "reference_status": "reference_consistent",
+    "table_count": 4,
+    "column_count": 21,
+    "foreign_key_count": 3,
+    "composite_foreign_key_count": 0,
     "error_count": 0,
-    "generator_version": "1.0",
-    "seed": 1
+    "parent_case_id": "SP_D074535919B3",
+    "split": "test",
+    "benchmark_version": "2.0"
   },
   "ground_truth": {
     "valid": true,

@@ -18,7 +18,7 @@ from src.core.io import (
 )
 
 
-MUTATION_VERSION = "2.0"
+MUTATION_VERSION = "3.0"
 
 
 ERROR_ORDER = (
@@ -32,31 +32,33 @@ ERROR_ORDER = (
 )
 
 
+ERROR_SELECTION_ORDER = (
+    ERROR_COMPOSITE_FK_INCOMPLETE,
+    ERROR_IDENTIFYING_RELATIONSHIP_KEY_ERROR,
+    ERROR_CARDINALITY_UNIQUENESS_CONFLICT,
+    ERROR_FK_TARGET_NOT_KEY,
+    ERROR_FK_WRONG_ENTITY,
+    ERROR_PARTICIPATION_OPTIONALITY_CONFLICT,
+    ERROR_MISSING_REQUIRED_RELATIONSHIP,
+)
+
+
 def get_entity(
     case: dict[str, Any],
     entity_name: str,
 ) -> dict[str, Any]:
-    for entity in case["entities"]:
-        if entity["name"] == entity_name:
+    for entity in case[
+        "entities"
+    ]:
+        if (
+            entity["name"]
+            == entity_name
+        ):
             return entity
 
     raise ValueError(
-        f"Entity not found: {entity_name}"
-    )
-
-
-def get_attribute(
-    entity: dict[str, Any],
-    attribute_name: str,
-) -> dict[str, Any]:
-    for attribute in entity["attributes"]:
-        if attribute["name"] == attribute_name:
-            return attribute
-
-    raise ValueError(
-        f"Attribute not found: "
-        f"{entity['name']}."
-        f"{attribute_name}"
+        f"Entity not found: "
+        f"{entity_name}"
     )
 
 
@@ -65,12 +67,50 @@ def primary_key_attributes(
 ) -> list[dict[str, Any]]:
     return [
         attribute
-        for attribute in entity["attributes"]
+        for attribute
+        in entity["attributes"]
         if attribute.get(
             "primary_key",
             False,
         )
     ]
+
+
+def candidate_key_attributes(
+    entity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    primary_keys = (
+        primary_key_attributes(
+            entity
+        )
+    )
+
+    candidates = []
+
+    if (
+        len(primary_keys)
+        == 1
+    ):
+        candidates.append(
+            primary_keys[0]
+        )
+
+    for attribute in entity[
+        "attributes"
+    ]:
+        if (
+            attribute.get(
+                "unique",
+                False,
+            )
+            and attribute
+            not in candidates
+        ):
+            candidates.append(
+                attribute
+            )
+
+    return candidates
 
 
 def foreign_keys_to_parent(
@@ -88,7 +128,9 @@ def foreign_keys_to_parent(
 
     result = []
 
-    for attribute in child["attributes"]:
+    for attribute in child[
+        "attributes"
+    ]:
 
         if not attribute.get(
             "foreign_key",
@@ -96,18 +138,22 @@ def foreign_keys_to_parent(
         ):
             continue
 
-        reference = attribute.get(
-            "references"
+        reference = (
+            attribute.get(
+                "references"
+            )
         )
 
-        if reference is None:
+        if not reference:
             continue
 
         if (
             reference["entity"]
             == parent_name
         ):
-            result.append(attribute)
+            result.append(
+                attribute
+            )
 
     return result
 
@@ -118,12 +164,15 @@ def choose_candidate(
 ) -> Any:
     if not candidates:
         raise ValueError(
-            "No eligible mutation candidate."
+            "No eligible mutation "
+            "candidate."
         )
 
     rng = random.Random(seed)
 
-    return rng.choice(candidates)
+    return rng.choice(
+        candidates
+    )
 
 
 def candidates_fk_target_not_key(
@@ -140,15 +189,6 @@ def candidates_fk_target_not_key(
             relationship["parent"],
         )
 
-        parent_pk = (
-            primary_key_attributes(
-                parent
-            )
-        )
-
-        if len(parent_pk) != 1:
-            continue
-
         child_fks = (
             foreign_keys_to_parent(
                 case,
@@ -156,41 +196,49 @@ def candidates_fk_target_not_key(
             )
         )
 
-        for child_fk in child_fks:
+        if (
+            len(child_fks)
+            != 1
+        ):
+            continue
 
-            for target in parent[
-                "attributes"
-            ]:
+        child_fk = (
+            child_fks[0]
+        )
 
-                if target.get(
-                    "primary_key",
-                    False,
-                ):
-                    continue
+        for target in parent[
+            "attributes"
+        ]:
 
-                if target.get(
-                    "unique",
-                    False,
-                ):
-                    continue
+            if target.get(
+                "primary_key",
+                False,
+            ):
+                continue
 
-                if (
-                    target["type"]
-                    != child_fk["type"]
-                ):
-                    continue
+            if target.get(
+                "unique",
+                False,
+            ):
+                continue
 
-                candidates.append(
-                    {
-                        "relationship": (
-                            relationship
-                        ),
-                        "child_fk": (
-                            child_fk
-                        ),
-                        "target": target,
-                    }
-                )
+            if (
+                target["type"]
+                != child_fk["type"]
+            ):
+                continue
+
+            candidates.append(
+                {
+                    "relationship": (
+                        relationship
+                    ),
+                    "child_fk": (
+                        child_fk
+                    ),
+                    "target": target,
+                }
+            )
 
     return candidates
 
@@ -204,20 +252,6 @@ def candidates_fk_wrong_entity(
         "relationships"
     ]:
 
-        parent = get_entity(
-            case,
-            relationship["parent"],
-        )
-
-        parent_pk = (
-            primary_key_attributes(
-                parent
-            )
-        )
-
-        if len(parent_pk) != 1:
-            continue
-
         child_fks = (
             foreign_keys_to_parent(
                 case,
@@ -225,37 +259,45 @@ def candidates_fk_wrong_entity(
             )
         )
 
-        for child_fk in child_fks:
+        if (
+            len(child_fks)
+            != 1
+        ):
+            continue
 
-            for alternative in case[
-                "entities"
-            ]:
+        child_fk = (
+            child_fks[0]
+        )
 
-                if (
-                    alternative["name"]
-                    == parent["name"]
-                ):
-                    continue
+        expected_parent = (
+            relationship[
+                "parent"
+            ]
+        )
 
-                alternative_pk = (
-                    primary_key_attributes(
-                        alternative
-                    )
+        for alternative in case[
+            "entities"
+        ]:
+
+            if (
+                alternative["name"]
+                == expected_parent
+            ):
+                continue
+
+            for key_attribute in (
+                candidate_key_attributes(
+                    alternative
                 )
+            ):
 
                 if (
-                    len(alternative_pk)
-                    != 1
-                ):
-                    continue
-
-                alternative_key = (
-                    alternative_pk[0]
-                )
-
-                if (
-                    alternative_key["type"]
-                    != child_fk["type"]
+                    key_attribute[
+                        "type"
+                    ]
+                    != child_fk[
+                        "type"
+                    ]
                 ):
                     continue
 
@@ -271,7 +313,7 @@ def candidates_fk_wrong_entity(
                             alternative
                         ),
                         "alternative_key": (
-                            alternative_key
+                            key_attribute
                         ),
                     }
                 )
@@ -288,20 +330,6 @@ def candidates_composite_fk_incomplete(
         "relationships"
     ]:
 
-        parent = get_entity(
-            case,
-            relationship["parent"],
-        )
-
-        parent_pk = (
-            primary_key_attributes(
-                parent
-            )
-        )
-
-        if len(parent_pk) < 2:
-            continue
-
         child_fks = (
             foreign_keys_to_parent(
                 case,
@@ -309,24 +337,9 @@ def candidates_composite_fk_incomplete(
             )
         )
 
-        referenced_parent_attributes = {
-            attribute["references"][
-                "attribute"
-            ]
-            for attribute in child_fks
-            if attribute.get(
-                "references"
-            )
-        }
-
-        required_parent_attributes = {
-            attribute["name"]
-            for attribute in parent_pk
-        }
-
         if (
-            referenced_parent_attributes
-            != required_parent_attributes
+            len(child_fks)
+            < 2
         ):
             continue
 
@@ -335,8 +348,9 @@ def candidates_composite_fk_incomplete(
                 "relationship": (
                     relationship
                 ),
-                "parent_pk": parent_pk,
-                "child_fks": child_fks,
+                "child_fks": (
+                    child_fks
+                ),
             }
         )
 
@@ -370,10 +384,15 @@ def candidates_cardinality_uniqueness(
             )
         )
 
-        if len(child_fks) != 1:
+        if (
+            len(child_fks)
+            != 1
+        ):
             continue
 
-        child_fk = child_fks[0]
+        child_fk = (
+            child_fks[0]
+        )
 
         if not child_fk.get(
             "unique",
@@ -419,15 +438,17 @@ def candidates_participation_optionality(
             )
         )
 
-        if len(child_fks) != 1:
-            continue
+        nonnullable = [
+            attribute
+            for attribute
+            in child_fks
+            if not attribute.get(
+                "nullable",
+                False,
+            )
+        ]
 
-        child_fk = child_fks[0]
-
-        if child_fk.get(
-            "nullable",
-            False,
-        ):
+        if not nonnullable:
             continue
 
         candidates.append(
@@ -435,8 +456,8 @@ def candidates_participation_optionality(
                 "relationship": (
                     relationship
                 ),
-                "child_fk": (
-                    child_fk
+                "eligible_fks": (
+                    nonnullable
                 ),
             }
         )
@@ -468,7 +489,8 @@ def candidates_identifying_key_error(
 
         primary_fks = [
             attribute
-            for attribute in child_fks
+            for attribute
+            in child_fks
             if attribute.get(
                 "primary_key",
                 False,
@@ -483,7 +505,7 @@ def candidates_identifying_key_error(
                 "relationship": (
                     relationship
                 ),
-                "child_fks": (
+                "primary_fks": (
                     primary_fks
                 ),
             }
@@ -553,23 +575,23 @@ CANDIDATE_FUNCTIONS = {
 def eligible_error_types(
     case: dict[str, Any],
 ) -> list[str]:
-    """
-    Return all error types that can be injected
-    into this valid case without relying on
-    dataset-specific entity names.
-    """
     result = []
 
-    for error_type in ERROR_ORDER:
-
+    for error_type in (
+        ERROR_ORDER
+    ):
         candidate_function = (
             CANDIDATE_FUNCTIONS[
                 error_type
             ]
         )
 
-        if candidate_function(case):
-            result.append(error_type)
+        if candidate_function(
+            case
+        ):
+            result.append(
+                error_type
+            )
 
     return result
 
@@ -586,11 +608,12 @@ def finalize_invalid_case(
     details: dict[str, Any],
     seed: int,
 ) -> dict[str, Any]:
-
     case["case_id"] = case_id
 
-    case["metadata"] = copy.deepcopy(
-        case["metadata"]
+    case["metadata"] = (
+        copy.deepcopy(
+            case["metadata"]
+        )
     )
 
     case["metadata"][
@@ -610,11 +633,17 @@ def finalize_invalid_case(
     ] = seed
 
     case["metadata"][
+        "mutation_source"
+    ] = "controlled"
+
+    case["metadata"][
         "error_count"
     ] = 1
 
     error: dict[str, Any] = {
-        "error_type": error_type,
+        "error_type": (
+            error_type
+        ),
         "details": details,
     }
 
@@ -622,14 +651,14 @@ def finalize_invalid_case(
         error["entity"] = entity
 
     if attribute is not None:
-        error["attribute"] = (
-            attribute
-        )
+        error[
+            "attribute"
+        ] = attribute
 
     if relationship is not None:
-        error["relationship"] = (
-            relationship
-        )
+        error[
+            "relationship"
+        ] = relationship
 
     case["ground_truth"] = {
         "valid": False,
@@ -647,7 +676,6 @@ def inject_fk_target_not_key(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -660,50 +688,78 @@ def inject_fk_target_not_key(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
     child_fk = (
-        candidate["child_fk"]
+        candidate[
+            "child_fk"
+        ]
     )
 
-    target = candidate["target"]
+    target = candidate[
+        "target"
+    ]
 
-    old_reference = copy.deepcopy(
-        child_fk["references"]
+    old_reference = (
+        copy.deepcopy(
+            child_fk[
+                "references"
+            ]
+        )
     )
 
-    child_fk["references"] = {
+    child_fk[
+        "references"
+    ] = {
         "entity": (
-            relationship["parent"]
+            relationship[
+                "parent"
+            ]
         ),
-        "attribute": target["name"],
+        "attribute": (
+            target[
+                "name"
+            ]
+        ),
     }
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_FK_TARGET_NOT_KEY
         ),
-        entity=relationship["child"],
-        attribute=child_fk["name"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
+        attribute=(
+            child_fk[
+                "name"
+            ]
+        ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "original_reference": (
                 old_reference
             ),
             "mutated_reference": (
-                child_fk["references"]
-            ),
-            "reason": (
-                "Foreign key references "
-                "a non-key attribute."
+                child_fk[
+                    "references"
+                ]
             ),
         },
         seed=seed,
@@ -716,7 +772,6 @@ def inject_fk_wrong_entity(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -729,11 +784,15 @@ def inject_fk_wrong_entity(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
     child_fk = (
-        candidate["child_fk"]
+        candidate[
+            "child_fk"
+        ]
     )
 
     alternative_entity = (
@@ -743,49 +802,73 @@ def inject_fk_wrong_entity(
     )
 
     alternative_key = (
-        candidate["alternative_key"]
+        candidate[
+            "alternative_key"
+        ]
     )
 
-    expected_parent = (
-        relationship["parent"]
+    old_reference = (
+        copy.deepcopy(
+            child_fk[
+                "references"
+            ]
+        )
     )
 
-    old_reference = copy.deepcopy(
-        child_fk["references"]
-    )
-
-    child_fk["references"] = {
+    child_fk[
+        "references"
+    ] = {
         "entity": (
-            alternative_entity["name"]
+            alternative_entity[
+                "name"
+            ]
         ),
         "attribute": (
-            alternative_key["name"]
+            alternative_key[
+                "name"
+            ]
         ),
     }
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_FK_WRONG_ENTITY
         ),
-        entity=relationship["child"],
-        attribute=child_fk["name"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
+        attribute=(
+            child_fk[
+                "name"
+            ]
+        ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "expected_parent": (
-                expected_parent
+                relationship[
+                    "parent"
+                ]
             ),
             "original_reference": (
                 old_reference
             ),
             "mutated_reference": (
-                child_fk["references"]
+                child_fk[
+                    "references"
+                ]
             ),
         },
         seed=seed,
@@ -798,7 +881,6 @@ def inject_composite_fk_incomplete(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -811,23 +893,33 @@ def inject_composite_fk_incomplete(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
     child_fks = (
-        candidate["child_fks"]
-    )
-
-    rng = random.Random(seed)
-
-    removed_component = rng.choice(
-        child_fks
-    )
-
-    removed_reference = copy.deepcopy(
-        removed_component[
-            "references"
+        candidate[
+            "child_fks"
         ]
+    )
+
+    rng = random.Random(
+        seed
+    )
+
+    removed_component = (
+        rng.choice(
+            child_fks
+        )
+    )
+
+    removed_reference = (
+        copy.deepcopy(
+            removed_component[
+                "references"
+            ]
+        )
     )
 
     removed_component[
@@ -839,37 +931,40 @@ def inject_composite_fk_incomplete(
         None,
     )
 
-    remaining_components = [
-        attribute["name"]
-        for attribute in child_fks
-        if attribute is not removed_component
-    ]
-
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_COMPOSITE_FK_INCOMPLETE
         ),
-        entity=relationship["child"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
         attribute=(
-            removed_component["name"]
+            removed_component[
+                "name"
+            ]
         ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "removed_component": (
-                removed_component["name"]
+                removed_component[
+                    "name"
+                ]
             ),
             "removed_reference": (
                 removed_reference
-            ),
-            "remaining_components": (
-                remaining_components
             ),
         },
         seed=seed,
@@ -882,7 +977,6 @@ def inject_cardinality_uniqueness_conflict(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -895,28 +989,46 @@ def inject_cardinality_uniqueness_conflict(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
     child_fk = (
-        candidate["child_fk"]
+        candidate[
+            "child_fk"
+        ]
     )
 
-    child_fk["unique"] = False
+    child_fk[
+        "unique"
+    ] = False
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_CARDINALITY_UNIQUENESS_CONFLICT
         ),
-        entity=relationship["child"],
-        attribute=child_fk["name"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
+        attribute=(
+            child_fk[
+                "name"
+            ]
+        ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "declared_child_cardinality": (
@@ -924,7 +1036,9 @@ def inject_cardinality_uniqueness_conflict(
                     "child_cardinality"
                 ]
             ),
-            "foreign_key_unique": False,
+            "foreign_key_unique": (
+                False
+            ),
         },
         seed=seed,
     )
@@ -936,7 +1050,6 @@ def inject_participation_optionality_conflict(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -949,28 +1062,50 @@ def inject_participation_optionality_conflict(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
-    child_fk = (
-        candidate["child_fk"]
+    rng = random.Random(
+        seed
     )
 
-    child_fk["nullable"] = True
+    child_fk = rng.choice(
+        candidate[
+            "eligible_fks"
+        ]
+    )
+
+    child_fk[
+        "nullable"
+    ] = True
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_PARTICIPATION_OPTIONALITY_CONFLICT
         ),
-        entity=relationship["child"],
-        attribute=child_fk["name"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
+        attribute=(
+            child_fk[
+                "name"
+            ]
+        ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "required_parent_cardinality": (
@@ -978,7 +1113,9 @@ def inject_participation_optionality_conflict(
                     "parent_cardinality"
                 ]
             ),
-            "foreign_key_nullable": True,
+            "mutated_nullable": (
+                True
+            ),
         },
         seed=seed,
     )
@@ -990,7 +1127,6 @@ def inject_identifying_relationship_key_error(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -1003,47 +1139,59 @@ def inject_identifying_relationship_key_error(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
-    child_fks = (
-        candidate["child_fks"]
+    rng = random.Random(
+        seed
     )
 
-    rng = random.Random(seed)
-
-    removed_key_component = (
-        rng.choice(child_fks)
+    child_fk = rng.choice(
+        candidate[
+            "primary_fks"
+        ]
     )
 
-    removed_key_component[
+    child_fk[
         "primary_key"
     ] = False
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_IDENTIFYING_RELATIONSHIP_KEY_ERROR
         ),
-        entity=relationship["child"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
         attribute=(
-            removed_key_component[
+            child_fk[
                 "name"
             ]
         ),
         relationship=(
-            relationship["name"]
+            relationship[
+                "name"
+            ]
         ),
         details={
             "parent_entity": (
-                relationship["parent"]
+                relationship[
+                    "parent"
+                ]
             ),
             "removed_child_key_component": (
-                removed_key_component[
+                child_fk[
                     "name"
                 ]
             ),
@@ -1058,7 +1206,6 @@ def inject_missing_required_relationship(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-
     case = copy.deepcopy(
         base_case
     )
@@ -1071,23 +1218,28 @@ def inject_missing_required_relationship(
     )
 
     relationship = (
-        candidate["relationship"]
+        candidate[
+            "relationship"
+        ]
     )
 
-    relationship_name_value = (
-        relationship["name"]
+    relationship_name = (
+        relationship[
+            "name"
+        ]
     )
 
-    child_fks = (
-        candidate["child_fks"]
-    )
+    removed_foreign_keys = []
 
-    removed_fk_names = []
-
-    for child_fk in child_fks:
-
-        removed_fk_names.append(
-            child_fk["name"]
+    for child_fk in (
+        candidate[
+            "child_fks"
+        ]
+    ):
+        removed_foreign_keys.append(
+            child_fk[
+                "name"
+            ]
         )
 
         child_fk[
@@ -1099,45 +1251,61 @@ def inject_missing_required_relationship(
             None,
         )
 
-    case["relationships"] = [
-        existing_relationship
-        for existing_relationship
-        in case["relationships"]
+    case[
+        "relationships"
+    ] = [
+        existing
+        for existing
+        in case[
+            "relationships"
+        ]
         if (
-            existing_relationship[
+            existing[
                 "name"
             ]
-            != relationship_name_value
+            != relationship_name
         )
     ]
 
     return finalize_invalid_case(
         case,
         original_case_id=(
-            base_case["case_id"]
+            base_case[
+                "case_id"
+            ]
         ),
         case_id=case_id,
         error_type=(
             ERROR_MISSING_REQUIRED_RELATIONSHIP
         ),
-        entity=relationship["child"],
+        entity=(
+            relationship[
+                "child"
+            ]
+        ),
         attribute=(
-            removed_fk_names[0]
-            if removed_fk_names
+            removed_foreign_keys[
+                0
+            ]
+            if removed_foreign_keys
             else None
         ),
         relationship=(
-            relationship_name_value
+            relationship_name
         ),
         details={
             "required_parent": (
-                relationship["parent"]
+                relationship[
+                    "parent"
+                ]
             ),
             "required_child": (
-                relationship["child"]
+                relationship[
+                    "child"
+                ]
             ),
             "removed_foreign_keys": (
-                removed_fk_names
+                removed_foreign_keys
             ),
         },
         seed=seed,
@@ -1176,10 +1344,6 @@ def inject_error(
     case_id: str,
     seed: int,
 ) -> dict[str, Any]:
-    """
-    Inject one controlled logical error into
-    a valid ER case.
-    """
     validate_case_dict(
         base_case
     )
@@ -1188,11 +1352,15 @@ def inject_error(
         "ground_truth"
     ]["valid"]:
         raise ValueError(
-            "Error injection requires "
-            "a valid base case."
+            "Controlled mutation "
+            "requires a valid "
+            "reference case."
         )
 
-    if error_type not in INJECTORS:
+    if (
+        error_type
+        not in INJECTORS
+    ):
         raise ValueError(
             f"Unsupported error type: "
             f"{error_type}"
@@ -1210,11 +1378,9 @@ def inject_error(
             f"{error_type}."
         )
 
-    injector = INJECTORS[
+    return INJECTORS[
         error_type
-    ]
-
-    return injector(
+    ](
         base_case,
         case_id=case_id,
         seed=seed,

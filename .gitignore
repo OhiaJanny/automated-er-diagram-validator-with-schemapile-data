@@ -3,7 +3,10 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .DS_Store
-
-data/generated/valid/*
-data/generated/invalid/*
 .env
+
+data/raw/*
+!data/raw/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
